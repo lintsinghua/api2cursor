@@ -1,0 +1,16 @@
+# 本地配置（含 key、口令、密码哈希）
+config.json
+config.json.tmp
+*.local.json
+.env
+.env.*
+
+# cloudflared 二进制
+bin/
+
+# 日志 / 依赖 / 系统文件
+logs/
+*.log
+node_modules/
+.DS_Store
+Thumbs.db

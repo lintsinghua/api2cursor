@@ -1,0 +1,64 @@
+{
+  "host": "127.0.0.1",
+  "port": 8787,
+  "proxy_token": "",
+  "model_prefix": "relay-",
+  "admin_remote": false,
+  "timeout_ms": 120000,
+  "models": {
+    "sonnet": { "upstream": "claude", "model": "claude-sonnet-4-5" }
+  },
+  "upstreams": [
+    {
+      "name": "relay",
+      "enabled": true,
+      "format": "openai",
+      "base_url": "https://your-relay.example.com/v1",
+      "api_key": "",
+      "api_key_env": "RELAY_API_KEY",
+      "headers": {},
+      "models": ["gpt-5", "claude-sonnet-4-5", "deepseek-chat"],
+      "fallback": ["claude"]
+    },
+    {
+      "name": "claude",
+      "enabled": true,
+      "format": "anthropic",
+      "base_url": "https://api.anthropic.com",
+      "api_key": "env:ANTHROPIC_API_KEY",
+      "models": ["claude-sonnet-4-5", "claude-opus-4-1"]
+    },
+    {
+      "name": "openai",
+      "enabled": false,
+      "format": "openai-responses",
+      "base_url": "https://api.openai.com/v1",
+      "api_key": "env:OPENAI_API_KEY",
+      "models": ["gpt-5", "gpt-5-codex"]
+    },
+    {
+      "name": "gemini",
+      "enabled": false,
+      "format": "gemini",
+      "base_url": "https://generativelanguage.googleapis.com",
+      "api_key": "env:GEMINI_API_KEY",
+      "models": ["gemini-2.5-pro", "gemini-2.5-flash"]
+    },
+    {
+      "name": "azure",
+      "enabled": false,
+      "format": "azure",
+      "base_url": "https://YOUR-RESOURCE.openai.azure.com",
+      "api_key": "env:AZURE_OPENAI_API_KEY",
+      "api_version": "2024-10-21",
+      "models": ["your-deployment-name"]
+    },
+    {
+      "name": "ollama",
+      "enabled": false,
+      "format": "openai",
+      "base_url": "http://localhost:11434/v1",
+      "models": ["qwen2.5-coder:32b"]
+    }
+  ]
+}

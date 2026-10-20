@@ -1,0 +1,22 @@
+{
+  "name": "api2cursor",
+  "version": "1.0.0",
+  "description": "Use any model in Cursor: a zero-dependency proxy that plugs API relays, Anthropic, Gemini, Azure, OpenAI Responses and local models into Cursor's Override OpenAI Base URL, with a web config page.",
+  "type": "module",
+  "main": "server.mjs",
+  "bin": { "api2cursor": "server.mjs" },
+  "scripts": {
+    "start": "node server.mjs",
+    "tunnel": "node server.mjs --tunnel",
+    "test": "node test/run-tests.mjs",
+    "test:tunnel": "TEST_TUNNEL=1 node test/run-tests.mjs"
+  },
+  "engines": { "node": ">=18" },
+  "files": ["server.mjs", "admin.html", "config.example.json", "start.sh", "start.bat", "README.md", "LICENSE"],
+  "keywords": ["cursor", "openai", "anthropic", "claude", "gemini", "azure", "proxy", "relay", "llm", "byok"],
+  "repository": { "type": "git", "url": "git+https://github.com/lintsinghua/api2cursor.git" },
+  "homepage": "https://github.com/lintsinghua/api2cursor",
+  "bugs": { "url": "https://github.com/lintsinghua/api2cursor/issues" },
+  "author": "lintsinghua",
+  "license": "MIT"
+}
