@@ -18,6 +18,11 @@ const DEBUG = process.env.RELAY_DEBUG === '1';
 const FORMATS = ['openai', 'openai-responses', 'anthropic', 'gemini', 'azure'];
 const FORMAT_ALIASES = { ollama: 'openai', lmstudio: 'openai', 'openai-compatible': 'openai', compatible: 'openai', responses: 'openai-responses', claude: 'anthropic', google: 'gemini', 'azure-openai': 'azure' };
 const EFFORT_RE = /^(.+)-(minimal|low|medium|high|xhigh)$/;
+const EFFORT_LEVELS = ['minimal', 'low', 'medium', 'high', 'xhigh'];
+// Anthropic manual extended thinking: budget_tokens 最少 1024，且必须小于 max_tokens。
+const ANTH_BUDGET = { minimal: 1024, low: 2048, medium: 8192, high: 16384, xhigh: 32768 };
+// Gemini 2.5 thinkingBudget。512 同时落在 Pro（128–32768）、Flash（0–24576）和 Flash-Lite（0 或 ≥512）的合法区间。
+const GEM_BUDGET = { minimal: 512, low: 1024, medium: 8192, high: 16384, xhigh: 24576 };
 
 const rid = (n = 12) => crypto.randomBytes(n).toString('hex');
 const now = () => new Date().toISOString();
@@ -41,6 +46,43 @@ function normHeaders(h) {
   } else if (h && typeof h === 'object') for (const [k, v] of Object.entries(h)) if (k.trim()) out[k.trim()] = String(v);
   return out;
 }
+function normEffortValue(v) {
+  if (v == null) return '';
+  const s = String(v).trim().toLowerCase().replace(/[\s_]+/g, '-');
+  if (!s) return '';
+  if (['off', 'none', 'disable', 'disabled', 'false'].includes(s)) return 'off';
+  if (['xhigh', 'x-high', 'extra-high', 'extrahigh'].includes(s)) return 'xhigh';
+  if (s === 'min') return 'minimal';
+  return EFFORT_LEVELS.includes(s) ? s : '';
+}
+function normBudgetValue(v) {
+  if (v == null || v === '') return null;
+  const n = Number(v);
+  if (!Number.isFinite(n)) return null;
+  const t = Math.trunc(n);
+  if (t < -1 || t > 200000) return null;
+  return t;
+}
+function normModelReasoning(v) {
+  const out = {};
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return out;
+  for (const [k, raw] of Object.entries(v)) {
+    const name = String(k || '').trim();
+    if (!name || name.length > 200) continue;
+    let effort = '', budget = null;
+    if (typeof raw === 'number' || (typeof raw === 'string' && /^-?\d+$/.test(raw.trim()))) budget = normBudgetValue(raw);
+    else if (typeof raw === 'string') effort = normEffortValue(raw);
+    else if (raw && typeof raw === 'object') {
+      effort = normEffortValue(raw.effort ?? raw.reasoning_effort);
+      budget = normBudgetValue(raw.budget ?? raw.reasoning_budget ?? raw.budget_tokens);
+    }
+    const entry = {};
+    if (effort) entry.effort = effort;
+    if (budget != null) entry.budget = budget;
+    if (effort || budget != null) out[name] = entry;
+  }
+  return out;
+}
 function normUpstream(u) {
   return {
     name: String(u.name || 'default').trim(),
@@ -55,6 +97,9 @@ function normUpstream(u) {
     api_version: u.api_version ? String(u.api_version) : '',
     key_in_query: !!u.key_in_query,
     timeout_ms: Number(u.timeout_ms) || 0,
+    reasoning_effort: normEffortValue(u.reasoning_effort),
+    reasoning_budget: normBudgetValue(u.reasoning_budget),
+    model_reasoning: normModelReasoning(u.model_reasoning),
   };
 }
 function normModels(m) {
@@ -171,16 +216,27 @@ const findUp = (n) => cfg.upstreams.find(u => u.name === n);
 // ---------------------------------------------------------------- model lists & routing
 const modelCache = new Map(); // name -> {t, list}
 function knownModels(u) { return u.models.length ? u.models : (modelCache.get(u.name)?.list || []); }
-const supportsEffort = (u) => ['openai', 'openai-responses', 'azure'].includes(u.format);
+const supportsEffort = (u) => !!u && ['openai', 'openai-responses', 'azure', 'anthropic', 'gemini'].includes(u.format);
+// 模型名本身就以 -high 等结尾、且在已知列表里时，不把它当成强度后缀。
+function splitEffort(u, model) {
+  if (!supportsEffort(u)) return null;
+  const m = EFFORT_RE.exec(model);
+  if (!m || knownModels(u).includes(model)) return null;
+  return { model: m[1], effort: m[2] };
+}
+function withEffort(r, requested) {
+  if (!r) return r;
+  const s = splitEffort(r.u, r.model);
+  if (!s) return { ...r, display: requested };
+  return { ...r, model: s.model, effort: r.effort || s.effort, display: requested };
+}
 
 function resolveRoute(requested, forceUpstream) {
   let name = String(requested || '');
   if (cfg.model_prefix && name.startsWith(cfg.model_prefix)) name = name.slice(cfg.model_prefix.length);
   if (forceUpstream) {
     const u = findUp(forceUpstream); if (!u) return null;
-    const m = EFFORT_RE.exec(name);
-    if (m && supportsEffort(u) && !knownModels(u).includes(name)) return { u, model: m[1], effort: m[2], display: name };
-    return { u, model: name, display: name };
+    return withEffort({ u, model: name }, name);
   }
   const tryName = (n, depth = 0) => {
     const alias = cfg.models[n];
@@ -203,11 +259,48 @@ function resolveRoute(requested, forceUpstream) {
   }
   if (!r) {
     const u = enabledUps()[0]; if (!u) return null;
-    let model = name; const m = EFFORT_RE.exec(name);
-    if (m && u.format === 'openai-responses') { model = m[1]; effort = m[2]; }
-    r = { u, model };
+    const s = splitEffort(u, name);
+    r = { u, model: s ? s.model : name };
+    if (s) effort = s.effort;
   }
-  return { ...r, effort, display: name };
+  return withEffort({ ...r, effort }, name);
+}
+
+// 后缀 > 请求 reasoning_effort > 按模型 > 上游默认。后缀和请求字段同时决定 token 预算（不用配置里的预算覆盖）。
+// 只配了预算、没配强度时，预算本身开启思考；0 表示关闭。
+function resolveReasoning(u, model, suffixEffort, req) {
+  const suffix = normEffortValue(suffixEffort);
+  const reqRaw = req && req.reasoning_effort;
+  const reqPresent = reqRaw != null && String(reqRaw).trim() !== '';
+  const reqEffort = reqPresent ? normEffortValue(reqRaw) : '';
+  const pm = (u.model_reasoning || {})[model] || {};
+  const modelEffort = normEffortValue(pm.effort);
+  const upEffort = normEffortValue(u.reasoning_effort);
+  let effort = '', source = '';
+  if (suffix) { effort = suffix; source = 'suffix'; }
+  else if (reqPresent && reqEffort) { effort = reqEffort; source = 'request'; }
+  else if (modelEffort) { effort = modelEffort; source = 'model'; }
+  else if (upEffort) { effort = upEffort; source = 'upstream'; }
+  let budget = null;
+  if (pm.budget != null) budget = pm.budget;
+  else if (u.reasoning_budget != null) budget = u.reasoning_budget;
+  if (source === 'suffix' || source === 'request') budget = null;
+  if (!effort && budget === 0) effort = 'off';
+  return { effort, budget, source };
+}
+function effortFromBudget(n) {
+  const v = Number(n) || 0;
+  if (v <= ANTH_BUDGET.minimal) return 'minimal';
+  if (v <= ANTH_BUDGET.low) return 'low';
+  if (v <= ANTH_BUDGET.medium) return 'medium';
+  if (v <= ANTH_BUDGET.high) return 'high';
+  return 'xhigh';
+}
+function resolvedLevel(reasoning) {
+  if (!reasoning || reasoning.effort === 'off') return '';
+  if (reasoning.effort) return reasoning.effort;
+  if (reasoning.budget != null && reasoning.budget !== 0) return effortFromBudget(reasoning.budget);
+  return '';
 }
 
 // ---------------------------------------------------------------- upstream HTTP
@@ -334,8 +427,128 @@ function completion(ctx, message, finish, usage) {
 
 // ---------------------------------------------------------------- anthropic
 const ANTH_FINISH = { end_turn: 'stop', stop_sequence: 'stop', max_tokens: 'length', tool_use: 'tool_calls', pause_turn: 'stop', refusal: 'content_filter' };
+const anthCache = new Map(); // tool_use id -> 该轮 thinking/tool_use 顺序（多轮工具调用要原样回传 signature）
+function cacheAnth(seq) {
+  const snap = [];
+  for (const b of seq || []) {
+    if (b.type === 'thinking' && b.signature) snap.push({ type: 'thinking', thinking: b.thinking || '', signature: b.signature });
+    else if (b.type === 'redacted_thinking' && b.data) snap.push({ type: 'redacted_thinking', data: b.data });
+    else if (b.type === 'tool_use' && b.id) snap.push({ type: 'tool_use', id: b.id });
+  }
+  const ids = snap.filter(b => b.type === 'tool_use').map(b => b.id);
+  if (!ids.length || !snap.some(b => b.type !== 'tool_use')) return;
+  for (const id of ids) {
+    anthCache.set(id, snap);
+    if (anthCache.size > 5000) anthCache.delete(anthCache.keys().next().value);
+  }
+}
+function claudeKind(model) {
+  const s = String(model || '').toLowerCase();
+  if (/claude-mythos-preview/.test(s)) return { family: 'mythos', major: 5, minor: 0, preview: true };
+  const ver = /claude-(opus|sonnet|haiku|fable|mythos)-(\d{1,2})(?:-(\d{1,2}))?(?=-|$)/.exec(s);
+  if (ver) return { family: ver[1], major: Number(ver[2]), minor: ver[3] != null ? Number(ver[3]) : 0, preview: false };
+  if (/^claude-3(?:-\d+)?/.test(s)) return { family: 'legacy', major: 3, minor: 0, preview: false };
+  return { family: '', major: 0, minor: 0, unknown: true };
+}
+function anthAdaptive(v) {
+  if (!v || v.unknown || v.major < 4) return false;
+  if (v.family === 'fable' || v.family === 'mythos') return true;
+  if (v.major > 4) return true;
+  return v.major === 4 && v.minor >= 6;
+}
+function anthSupportsXhigh(v) {
+  if (!v || v.preview || v.unknown) return false;
+  if (v.family === 'fable' || v.family === 'mythos') return true;
+  if (v.major >= 5 && v.family !== 'haiku') return true;
+  if (v.family === 'haiku' && v.major === 5 && v.minor >= 5) return true;
+  return v.family === 'opus' && v.major === 4 && (v.minor === 7 || v.minor === 8);
+}
+function anthSupportsMax(v) {
+  if (!v || v.unknown) return false;
+  if (v.family === 'fable' || v.family === 'mythos') return true;
+  if (v.major >= 5 && v.family !== 'haiku') return true;
+  if (v.family === 'haiku' && v.major === 5 && v.minor >= 5) return true;
+  if (v.major === 4 && v.minor === 6 && (v.family === 'opus' || v.family === 'sonnet')) return true;
+  return v.family === 'opus' && v.major === 4 && (v.minor === 7 || v.minor === 8);
+}
+// Opus 5.5 / Sonnet 5.5 / Fable / Mythos 拒绝 thinking.type=disabled。其余 adaptive 模型可以关掉。
+function anthCanDisable(v) {
+  if (!anthAdaptive(v)) return false;
+  if (v.family === 'fable' || v.family === 'mythos') return false;
+  if (v.major >= 5 && v.minor >= 5 && (v.family === 'opus' || v.family === 'sonnet')) return false;
+  return true;
+}
+function anthEffortName(v, level) {
+  if (level === 'minimal') return 'low';
+  if (level === 'xhigh') {
+    if (anthSupportsXhigh(v)) return 'xhigh';
+    if (anthSupportsMax(v)) return 'max';
+    return 'high';
+  }
+  return level;
+}
+function anthToolBlock(tc) {
+  return { type: 'tool_use', id: tc.id, name: tc.function?.name, input: safeJson(tc.function?.arguments) };
+}
+function clientThinking(m) {
+  const out = [];
+  const push = (b) => {
+    if (!b || typeof b !== 'object') return;
+    if (b.type === 'redacted_thinking' && b.data) out.push({ type: 'redacted_thinking', data: b.data });
+    else if (b.signature && (b.type === 'thinking' || b.type == null)) out.push({ type: 'thinking', thinking: b.thinking || '', signature: b.signature });
+  };
+  for (const b of [].concat(m.thinking_blocks || [])) push(b);
+  if (Array.isArray(m.content)) for (const p of m.content) if (p && (p.type === 'thinking' || p.type === 'redacted_thinking')) push(p);
+  return out;
+}
+function replayThinking(toolCalls) {
+  if (!toolCalls?.length) return null;
+  const seq = toolCalls.map(tc => anthCache.get(tc.id)).find(Boolean);
+  if (!seq) return null;
+  const byId = new Map(toolCalls.map(tc => [tc.id, tc]));
+  const used = new Set();
+  const out = [];
+  for (const b of seq) {
+    if (b.type === 'tool_use') {
+      const tc = byId.get(b.id);
+      if (!tc) continue;
+      used.add(b.id);
+      out.push(anthToolBlock(tc));
+    } else out.push({ ...b });
+  }
+  for (const tc of toolCalls) if (!used.has(tc.id)) out.push(anthToolBlock(tc));
+  return out;
+}
+function applyAnthropicThinking(body, r, model, reasoning, hasTools) {
+  const level = resolvedLevel(reasoning);
+  const kind = claudeKind(model);
+  if (!level && reasoning?.effort !== 'off') return '';
+  if (reasoning?.effort === 'off' || !level) {
+    if (anthCanDisable(kind)) body.thinking = { type: 'disabled' };
+    return '';
+  }
+  const adaptive = anthAdaptive(kind);
+  if (adaptive) {
+    body.thinking = { type: 'adaptive', display: 'summarized' };
+    body.output_config = { ...(body.output_config || {}), effort: anthEffortName(kind, level) };
+    delete body.temperature;
+    delete body.top_p;
+    return '';
+  }
+  const budget = Math.max(1024, reasoning?.budget > 0 ? reasoning.budget : (ANTH_BUDGET[level] || ANTH_BUDGET.medium));
+  body.thinking = { type: 'enabled', budget_tokens: budget };
+  if (!(body.max_tokens > budget)) body.max_tokens = budget + 1024;
+  delete body.temperature;
+  if (r.temperature == null && r.top_p != null) {
+    const p = Number(r.top_p);
+    if (p >= 0.95 && p <= 1) body.top_p = p;
+    else delete body.top_p;
+  } else delete body.top_p;
+  if (kind.family === 'opus' && kind.major === 4 && kind.minor === 5) body.output_config = { ...(body.output_config || {}), effort: anthEffortName(kind, level) };
+  return hasTools ? 'interleaved-thinking-2025-05-14' : '';
+}
 function anthUsage(u = {}) { const p = (u.input_tokens || 0) + (u.cache_creation_input_tokens || 0) + (u.cache_read_input_tokens || 0); return mkUsage(p, u.output_tokens, u.cache_read_input_tokens ? { prompt_tokens_details: { cached_tokens: u.cache_read_input_tokens } } : undefined); }
-function toAnthropic(r, model) {
+function toAnthropic(r, model, reasoning) {
   const P = prep(r), system = [], out = [];
   const push = (role, blocks) => {
     if (!blocks.length) return;
@@ -351,8 +564,17 @@ function toAnthropic(r, model) {
       else if (p.type === 'image_url') { const u = imgUrl(p), d = parseDataUrl(u); blocks.push(d ? { type: 'image', source: { type: 'base64', media_type: d.mime, data: d.data } } : { type: 'image', source: { type: 'url', url: u } }); }
     }
     if (m.role === 'assistant') {
-      for (const tc of m.tool_calls || []) blocks.push({ type: 'tool_use', id: tc.id, name: tc.function?.name, input: safeJson(tc.function?.arguments) });
-      push('assistant', blocks);
+      const replay = replayThinking(m.tool_calls);
+      if (replay) {
+        let i = 0;
+        while (replay[i] && (replay[i].type === 'thinking' || replay[i].type === 'redacted_thinking')) i++;
+        replay.splice(i, 0, ...blocks);
+        push('assistant', replay);
+      } else {
+        blocks.unshift(...clientThinking(m));
+        for (const tc of m.tool_calls || []) blocks.push(anthToolBlock(tc));
+        push('assistant', blocks);
+      }
     } else push('user', blocks);
   }
   if (!out.length || out[0].role !== 'user') out.unshift({ role: 'user', content: [{ type: 'text', text: '(continue)' }] });
@@ -371,9 +593,11 @@ function toAnthropic(r, model) {
     if (r.parallel_tool_calls === false) body.tool_choice = { ...(body.tool_choice || { type: 'auto' }), disable_parallel_tool_use: true };
   }
   if (r.stream) body.stream = true;
-  return body;
+  const beta = applyAnthropicThinking(body, r, model, reasoning, !!(P.tools.length && P.toolChoice !== 'none'));
+  return { body, beta };
 }
 function fromAnthropic(j, ctx) {
+  cacheAnth(j.content);
   let text = '', reasoning = ''; const tcs = [];
   for (const b of j.content || []) {
     if (b.type === 'text') text += b.text || '';
@@ -388,6 +612,8 @@ function fromAnthropic(j, ctx) {
 }
 function anthStreamer(ctx, emit) {
   const blocks = {}; let tIdx = 0, usageIn = {}, outTok = 0;
+  const seq = [], byIndex = {};
+  const remember = () => cacheAnth(seq);
   return (ev, d) => {
     switch (d.type) {
       case 'message_start': usageIn = d.message?.usage || {}; outTok = usageIn.output_tokens || 0; ctx.usage = anthUsage({ ...usageIn, output_tokens: outTok }); break;
@@ -395,8 +621,14 @@ function anthStreamer(ctx, emit) {
         const b = d.content_block || {};
         if (b.type === 'tool_use') {
           const i = tIdx++; blocks[d.index] = i; ctx.hadTools = true;
+          byIndex[d.index] = { type: 'tool_use', id: b.id }; seq.push(byIndex[d.index]);
           emit(chunk(ctx, { tool_calls: [{ index: i, id: b.id, type: 'function', function: { name: b.name, arguments: '' } }] }));
           if (b.input && Object.keys(b.input).length) emit(chunk(ctx, { tool_calls: [{ index: i, function: { arguments: JSON.stringify(b.input) } }] }));
+        } else if (b.type === 'thinking') {
+          byIndex[d.index] = { type: 'thinking', thinking: b.thinking || '', signature: b.signature || '' }; seq.push(byIndex[d.index]);
+          if (b.thinking) emit(chunk(ctx, { reasoning_content: b.thinking }));
+        } else if (b.type === 'redacted_thinking') {
+          byIndex[d.index] = { type: 'redacted_thinking', data: b.data || '' }; seq.push(byIndex[d.index]);
         } else if (b.type === 'text' && b.text) emit(chunk(ctx, { content: b.text }));
         break;
       }
@@ -404,7 +636,12 @@ function anthStreamer(ctx, emit) {
         const dl = d.delta || {};
         if (dl.type === 'text_delta') emit(chunk(ctx, { content: dl.text }));
         else if (dl.type === 'input_json_delta') { const i = blocks[d.index]; if (i != null && dl.partial_json) emit(chunk(ctx, { tool_calls: [{ index: i, function: { arguments: dl.partial_json } }] })); }
-        else if (dl.type === 'thinking_delta') emit(chunk(ctx, { reasoning_content: dl.thinking }));
+        else if (dl.type === 'thinking_delta') {
+          const block = byIndex[d.index]; if (block?.type === 'thinking' && dl.thinking) block.thinking += dl.thinking;
+          if (dl.thinking) emit(chunk(ctx, { reasoning_content: dl.thinking }));
+        } else if (dl.type === 'signature_delta') {
+          const block = byIndex[d.index]; if (block?.type === 'thinking' && dl.signature) block.signature += dl.signature;
+        }
         break;
       }
       case 'message_delta':
@@ -412,14 +649,16 @@ function anthStreamer(ctx, emit) {
         if (d.usage?.input_tokens) usageIn = { ...usageIn, ...d.usage };
         if (d.delta?.stop_reason) ctx.finish = ANTH_FINISH[d.delta.stop_reason] || 'stop';
         ctx.usage = anthUsage({ ...usageIn, output_tokens: outTok });
+        remember();
         break;
+      case 'message_stop': remember(); break;
       case 'error': ctx.error = { message: d.error?.message || 'upstream error', type: d.error?.type || 'upstream_error' }; break;
     }
   };
 }
 
 // ---------------------------------------------------------------- openai responses
-function toResponses(r, model, effort) {
+function toResponses(r, model, reasoning) {
   const P = prep(r), input = [];
   for (const m of P.msgs) {
     if (m.role === 'system' || m.role === 'developer') { const t = textOf(m.content); if (t) input.push({ role: m.role, content: t }); continue; }
@@ -442,7 +681,7 @@ function toResponses(r, model, effort) {
   if (typeof tc === 'string') body.tool_choice = tc;
   else if (tc?.function?.name) body.tool_choice = { type: 'function', name: tc.function.name };
   if (r.parallel_tool_calls != null) body.parallel_tool_calls = r.parallel_tool_calls;
-  const eff = effort || r.reasoning_effort;
+  const eff = resolvedLevel(reasoning);
   if (eff) body.reasoning = { effort: eff };
   return body;
 }
@@ -496,7 +735,40 @@ function respStreamer(ctx, emit) {
 const sigCache = new Map(); // tool_call_id -> thoughtSignature（Gemini 3 多轮工具调用需要回传）
 function cacheSig(id, sig) { if (!sig) return; sigCache.set(id, sig); if (sigCache.size > 5000) sigCache.delete(sigCache.keys().next().value); }
 const GEM_FILTER = new Set(['SAFETY', 'RECITATION', 'BLOCKLIST', 'PROHIBITED_CONTENT', 'SPII', 'IMAGE_SAFETY', 'LANGUAGE']);
-function toGemini(r, model) {
+function geminiKind(model) {
+  const m = String(model || '').toLowerCase().replace(/^models\//, '');
+  if (/gemini-2\.5|gemini-2-5|robotics-er-1/.test(m)) return 'budget';
+  if (/gemini-1(\.|-|$)/.test(m)) return 'none';
+  return 'level';
+}
+function geminiLevelName(model, level) {
+  const m = String(model || '').toLowerCase();
+  const noMinimal = /gemini-4|argon|gemini-3\.8/.test(m);
+  if (level === 'xhigh') return 'high';
+  if ((level === 'minimal' || level === 'off') && noMinimal) return 'low';
+  if (level === 'off') return 'minimal';
+  return level;
+}
+function geminiThinking(model, reasoning) {
+  const kind = geminiKind(model);
+  if (kind === 'none' || !reasoning) return null;
+  const level = resolvedLevel(reasoning);
+  const off = reasoning.effort === 'off';
+  if (!level && !off) return null;
+  if (kind === 'budget') {
+    if (off) {
+      if (/pro/.test(String(model).toLowerCase()) && !/flash/.test(String(model).toLowerCase())) return null;
+      return { thinkingBudget: 0, includeThoughts: false };
+    }
+    const budget = reasoning.budget === -1 || reasoning.budget > 0 ? reasoning.budget : GEM_BUDGET[level];
+    if (budget == null) return null;
+    if (budget === 0) return { thinkingBudget: 0, includeThoughts: false };
+    return { thinkingBudget: budget, includeThoughts: true };
+  }
+  const name = geminiLevelName(model, off ? 'off' : level);
+  return { thinkingLevel: name, includeThoughts: true };
+}
+function toGemini(r, model, reasoning) {
   const P = prep(r), sys = [], contents = [], idName = {};
   const push = (role, parts) => {
     if (!parts.length) return;
@@ -534,6 +806,8 @@ function toGemini(r, model) {
   if (r.temperature != null) gc.temperature = r.temperature;
   if (r.top_p != null) gc.topP = r.top_p;
   if (P.stop.length) gc.stopSequences = P.stop.slice(0, 5);
+  const think = geminiThinking(model, reasoning);
+  if (think) gc.thinkingConfig = think;
   if (Object.keys(gc).length) body.generationConfig = gc;
   if (P.tools.length) {
     body.tools = [{ functionDeclarations: P.tools.map(t => ({ name: t.function.name, description: t.function.description || '', parametersJsonSchema: t.function.parameters || { type: 'object', properties: {} } })) }];
@@ -583,13 +857,30 @@ function gemStreamer(ctx, emit) {
 }
 
 // ---------------------------------------------------------------- request building
+function addBeta(headers, beta) {
+  if (!beta) return;
+  const key = Object.keys(headers).find(k => k.toLowerCase() === 'anthropic-beta');
+  const cur = key ? String(headers[key]) : '';
+  const parts = cur.split(',').map(s => s.trim()).filter(Boolean);
+  if (!parts.includes(beta)) parts.push(beta);
+  if (key && key !== 'anthropic-beta') delete headers[key];
+  headers['anthropic-beta'] = parts.join(',');
+}
+function applyPassEffort(body, reasoning) {
+  if (!reasoning) return;
+  if (reasoning.effort === 'off') { delete body.reasoning_effort; return; }
+  const level = resolvedLevel(reasoning);
+  if (level) body.reasoning_effort = level;
+  else if (body.reasoning_effort != null && !normEffortValue(body.reasoning_effort)) delete body.reasoning_effort;
+}
 function buildRequest(u, r, model, effort, pathSuffix = '/chat/completions') {
   const base = upBase(u);
   const headers = { 'content-type': 'application/json', accept: r.stream ? 'text/event-stream' : 'application/json', ...authHeaders(u) };
+  const reasoning = resolveReasoning(u, model, effort, r);
   switch (u.format) {
     case 'openai': case 'azure': {
       const body = { ...r, model };
-      if (effort && body.reasoning_effort == null) body.reasoning_effort = effort;
+      applyPassEffort(body, reasoning);
       let url;
       if (u.format === 'azure' && !azureIsV1(u)) url = `${base}/openai/deployments/${encodeURIComponent(model)}${pathSuffix}?api-version=${encodeURIComponent(u.api_version || '2024-10-21')}`;
       else url = base + pathSuffix;
@@ -597,13 +888,16 @@ function buildRequest(u, r, model, effort, pathSuffix = '/chat/completions') {
     }
     case 'openai-responses':
       if (pathSuffix !== '/chat/completions') return { kind: 'pass', url: base + pathSuffix, headers, body: { ...r, model } };
-      return { kind: 'responses', url: base + '/responses', headers, body: toResponses(r, model, effort) };
-    case 'anthropic':
-      return { kind: 'anthropic', url: base + '/messages', headers, body: toAnthropic(r, model) };
+      return { kind: 'responses', url: base + '/responses', headers, body: toResponses(r, model, reasoning) };
+    case 'anthropic': {
+      const built = toAnthropic(r, model, reasoning);
+      addBeta(headers, built.beta);
+      return { kind: 'anthropic', url: base + '/messages', headers, body: built.body };
+    }
     case 'gemini': {
       const m = model.replace(/^models\//, '');
       const q = [r.stream ? 'alt=sse' : '', u.key_in_query && upstreamKey(u) ? 'key=' + encodeURIComponent(upstreamKey(u)) : ''].filter(Boolean).join('&');
-      return { kind: 'gemini', url: `${base}/models/${encodeURIComponent(m)}:${r.stream ? 'streamGenerateContent' : 'generateContent'}${q ? '?' + q : ''}`, headers, body: toGemini(r, m) };
+      return { kind: 'gemini', url: `${base}/models/${encodeURIComponent(m)}:${r.stream ? 'streamGenerateContent' : 'generateContent'}${q ? '?' + q : ''}`, headers, body: toGemini(r, m, reasoning) };
     }
     default: throw new Error('不支持的格式: ' + u.format);
   }

@@ -168,6 +168,25 @@ summary:hover{color:var(--fg)}
       </div>
       <label class="f" for="eModels">模型</label>
       <textarea id="eModels" placeholder="每行一个，或留空"></textarea>
+      <div class="grid2">
+        <div>
+          <label class="f" for="eEffort">思考深度</label>
+          <select id="eEffort">
+            <option value="">不设置</option>
+            <option value="off">off 关闭</option>
+            <option value="minimal">minimal</option>
+            <option value="low">low</option>
+            <option value="medium">medium</option>
+            <option value="high">high</option>
+            <option value="xhigh">xhigh</option>
+          </select>
+        </div>
+        <div>
+          <label class="f" for="eBudget">思考预算 <span class="mut">tokens，留空按强度</span></label>
+          <input id="eBudget" type="number" step="1" min="-1" placeholder="例如 8192">
+        </div>
+      </div>
+      <p class="one">优先级：模型名后缀（-minimal / -low / -medium / -high / -xhigh）&gt; 请求 reasoning_effort &gt; 按模型 &gt; 上游默认。Anthropic 4.6+ 与 Claude 5 发送 adaptive 与 effort；Claude 4.5 及以前发送 budget_tokens。Gemini 3+ 发送 thinkingLevel，Gemini 2.5 发送 thinkingBudget。</p>
       <div class="row">
         <button type="button" id="fetchBtn">获取模型</button>
         <button type="button" id="allBtn" hidden>全选</button>
@@ -190,6 +209,8 @@ summary:hover{color:var(--fg)}
           <div><label class="check" for="eEnabled"><input type="checkbox" id="eEnabled" checked>启用</label>
             <label class="check" id="eGem" for="eKeyQ" hidden><input type="checkbox" id="eKeyQ">Key 放在 ?key=</label></div>
         </div>
+        <label class="f" for="eModelReason">按模型覆盖思考</label>
+        <textarea id="eModelReason" placeholder="模型名 强度 [预算]&#10;claude-opus-4-5 high 16000&#10;gemini-2.5-flash off"></textarea>
         <label class="f" for="eHeaders">请求头</label>
         <textarea id="eHeaders" placeholder="Name: value"></textarea>
       </details>
@@ -381,16 +402,33 @@ function editUp(u){
   $('eEnabled').checked=u?u.enabled:true;
   $('eHeaders').value=u?Object.keys(u.headers||{}).map(function(k){return k+': '+u.headers[k]}).join('\n'):'';
   $('eModels').value=u?u.models.join('\n'):'';
+  $('eEffort').value=u&&u.reasoning_effort?u.reasoning_effort:'';
+  $('eBudget').value=u&&u.reasoning_budget!=null?u.reasoning_budget:'';
+  $('eModelReason').value=formatReason(u&&u.model_reasoning);
   $('eFetched').innerHTML=''; $('eFetchMsg').textContent=''; $('allBtn').hidden=true; fetched=[];
   $('tRes').innerHTML=''; $('tModel').value=u&&u.models[0]?u.models[0]:'';
   clearErrs(); applyFormat(!u); fillTestList();
   $('editor').hidden=false; $('eName').focus();
 }
 function closeEd(){editing=null;$('editor').hidden=true}
+function formatReason(obj){
+  return Object.keys(obj||{}).map(function(k){var v=obj[k]||{};return [k,v.effort||'',v.budget!=null?v.budget:''].filter(function(x){return x!==''&&x!=null}).join(' ')}).join('\n');
+}
+function parseReason(text){
+  var out={};
+  String(text||'').split('\n').forEach(function(line){
+    var s=line.trim(); if(!s||s.charAt(0)==='#') return;
+    var parts=s.split(/\s+/), name=parts[0], entry={};
+    parts.slice(1).forEach(function(p){if(/^-?\d+$/.test(p)) entry.budget=Number(p); else if(p!=='-'&&p!=='*') entry.effort=p});
+    if(entry.effort||entry.budget!=null) out[name]=entry;
+  });
+  return out;
+}
 function draft(){
   return {name:$('eName').value.trim(),format:$('eFormat').value,base_url:$('eBase').value.trim(),api_key:$('eKey').value,clear_api_key:$('eClear').checked,
     api_key_env:$('eKeyEnv').value.trim(),fallback:$('eFallback').value,api_version:$('eApiVer').value.trim(),key_in_query:$('eKeyQ').checked,
-    timeout_ms:Number($('eTimeout').value)||0,enabled:$('eEnabled').checked,headers:$('eHeaders').value,models:$('eModels').value};
+    timeout_ms:Number($('eTimeout').value)||0,enabled:$('eEnabled').checked,headers:$('eHeaders').value,models:$('eModels').value,
+    reasoning_effort:$('eEffort').value,reasoning_budget:$('eBudget').value===''?null:Number($('eBudget').value),model_reasoning:parseReason($('eModelReason').value)};
 }
 function validate(){
   clearErrs();

@@ -220,6 +220,12 @@ async function main() {
   await toolRoundTrip('relay-gpt-mock', 'openai');
   r = await chat({ model: 'relay-gpt-mock-high', messages: [{ role: 'user', content: 'hi' }] });
   L = await last('oa'); ok(r.status === 200 && L.body.model === 'gpt-mock' && L.body.reasoning_effort === 'high', 'openai 模型名 -high 后缀 → reasoning_effort');
+  r = await chat({ model: 'relay-gpt-mock', messages: [{ role: 'user', content: 'hi' }], reasoning_effort: 'low' });
+  L = await last('oa'); ok(r.status === 200 && L.body.reasoning_effort === 'low', 'openai 请求 reasoning_effort=low');
+  r = await chat({ model: 'relay-gpt-mock-high', messages: [{ role: 'user', content: 'hi' }], reasoning_effort: 'low' });
+  L = await last('oa'); ok(L.body.model === 'gpt-mock' && L.body.reasoning_effort === 'high', 'openai 后缀优先于请求 reasoning_effort');
+  r = await chat({ model: 'relay-gpt-mock', messages: [{ role: 'user', content: 'hi' }], reasoning_effort: 'off' });
+  L = await last('oa'); ok(L.body.reasoning_effort == null, 'openai reasoning_effort=off 不转发给上游');
   r = await chat({ model: 'relay-fail500', messages: [{ role: 'user', content: 'hi' }] });
   ok(r.status === 500 && r.json?.error?.message === 'boom', '上游 500 状态码和错误体原样返回', r.text);
   r = await chat({ model: 'relay-oa/gpt-mock', messages: [{ role: 'user', content: 'hi' }] });
@@ -233,6 +239,8 @@ async function main() {
   ok(r.status === 200 && r.json.choices[0].message.content === 'pong from responses model=gpt-5-mock effort=high', 'responses 非流式 + -high → reasoning.effort', r.text);
   ok(L.body.input[0].role === 'system' && L.body.input[1].content[1].type === 'input_image' && L.body.max_output_tokens === 100 && L.body.store === false, 'responses 请求翻译（system/input_image/max_output_tokens）', JSON.stringify(L.body));
   ok(r.json.usage?.prompt_tokens === 40 && r.json.usage?.completion_tokens === 12, 'responses usage 映射');
+  r = await chat({ model: 'relay-gpt-5-mock', messages: [{ role: 'user', content: 'hi' }], reasoning_effort: 'medium' });
+  L = await last('rs'); ok(r.status === 200 && L.body.reasoning?.effort === 'medium' && !/-medium$/.test(L.body.model), 'responses 请求 reasoning_effort → reasoning.effort', JSON.stringify(L.body.reasoning));
   r = await chat({ model: 'relay-gpt-5-mock', messages: [{ role: 'user', content: 'hi' }], stream: true });
   let a = assemble(parseSse(r.text).chunks);
   ok(r.status === 200 && a.content === 'pong from responses model=gpt-5-mock effort=none' && a.role === 'assistant' && a.finish === 'stop', 'responses 流式文本', r.text.slice(0, 300));
@@ -260,6 +268,57 @@ async function main() {
   L = await last('an'); ok(L.body.tool_choice.type === 'any' && L.body.tool_choice.disable_parallel_tool_use === true, 'tool_choice required → any + disable_parallel_tool_use');
   r = await chat({ model: 'relay-an/bad-model', messages: [{ role: 'user', content: 'x' }] });
   ok(r.status === 404 && /bad-model/.test(r.json?.error?.message) && r.json.error.type === 'not_found_error', 'anthropic 错误 → OpenAI 错误格式，状态码保留', r.text);
+  r = await chat({ model: 'relay-claude-mock-1-low', messages: [{ role: 'user', content: 'hi' }], temperature: 0.2, top_p: 0.5, max_tokens: 100 });
+  L = await last('an');
+  ok(r.status === 200 && L.body.model === 'claude-mock-1' && L.body.thinking?.type === 'enabled' && L.body.thinking.budget_tokens === 2048 && L.body.max_tokens > L.body.thinking.budget_tokens && L.body.temperature == null && L.body.top_p == null && r.json.choices[0].message.reasoning_content === 'ponder', 'anthropic 未知/旧模型 -low → budget_tokens，max_tokens 大于预算，去掉 temperature/top_p', JSON.stringify(L.body).slice(0, 500));
+  r = await chat({ model: 'relay-claude-mock-1-low', messages: [{ role: 'user', content: 'hi' }], top_p: 0.97, stream: true });
+  L = await last('an');
+  a = assemble(parseSse(r.text).chunks);
+  ok(r.status === 200 && L.body.stream === true && L.body.thinking?.type === 'enabled' && L.body.thinking.budget_tokens === 2048 && L.body.top_p === 0.97 && a.reasoning === 'ponder' && a.content.includes('pong from anthropic'), 'anthropic 流式 -low 同样带 budget，top_p 在 0.95–1 保留，thinking_delta → reasoning_content', JSON.stringify(L.body.thinking));
+  r = await chat({ model: 'relay-an/claude-sonnet-4-5-high', messages: [{ role: 'user', content: 'hi' }] });
+  L = await last('an');
+  ok(L.body.model === 'claude-sonnet-4-5' && L.body.thinking?.type === 'enabled' && L.body.thinking.budget_tokens === 16384 && L.body.output_config == null, 'Claude 4.5 -high → extended thinking budget 16384，不发 effort', JSON.stringify(L.body.thinking));
+  r = await chat({ model: 'relay-an/claude-opus-4-5-high', messages: [{ role: 'user', content: 'hi' }] });
+  L = await last('an');
+  ok(L.body.thinking?.type === 'enabled' && L.body.thinking.budget_tokens === 16384 && L.body.output_config?.effort === 'high', 'Claude Opus 4.5 同时发 budget_tokens 与 output_config.effort');
+  r = await chat({ model: 'relay-an/claude-sonnet-4-6-high', messages: [{ role: 'user', content: 'hi' }], temperature: 0.2 });
+  L = await last('an');
+  ok(L.body.model === 'claude-sonnet-4-6' && L.body.thinking?.type === 'adaptive' && L.body.thinking.display === 'summarized' && L.body.thinking.budget_tokens == null && L.body.output_config?.effort === 'high' && L.body.temperature == null, 'Claude 4.6 -high → adaptive + effort，不发 budget_tokens', JSON.stringify({ thinking: L.body.thinking, output_config: L.body.output_config }));
+  r = await chat({ model: 'relay-an/claude-sonnet-4-6-xhigh', messages: [{ role: 'user', content: 'hi' }], stream: true });
+  L = await last('an');
+  ok(L.body.stream === true && L.body.thinking?.type === 'adaptive' && L.body.output_config?.effort === 'max', 'Claude Sonnet 4.6 无 xhigh，-xhigh 映射为 effort max');
+  r = await chat({ model: 'relay-an/claude-opus-4-7-xhigh', messages: [{ role: 'user', content: 'hi' }] });
+  L = await last('an');
+  ok(L.body.thinking?.type === 'adaptive' && L.body.output_config?.effort === 'xhigh', 'Claude Opus 4.7 -xhigh → effort xhigh');
+  r = await chat({ model: 'relay-an/claude-opus-5-5-minimal', messages: [{ role: 'user', content: 'hi' }] });
+  L = await last('an');
+  ok(L.body.thinking?.type === 'adaptive' && L.body.output_config?.effort === 'low', 'Claude Opus 5.5 -minimal → effort low（API 无 minimal）');
+  r = await chat({ model: 'relay-an/claude-sonnet-4-6', messages: [{ role: 'user', content: 'hi' }], reasoning_effort: 'off' });
+  L = await last('an');
+  ok(L.body.thinking?.type === 'disabled' && L.body.output_config == null, 'adaptive 且允许关闭的模型，reasoning_effort=off → thinking disabled');
+  r = await chat({ model: 'relay-an/claude-opus-5-5', messages: [{ role: 'user', content: 'hi' }], reasoning_effort: 'off' });
+  L = await last('an');
+  ok(L.body.thinking == null, 'Opus 5.5 拒绝 disabled，off 时不发 thinking 字段', JSON.stringify(L.body.thinking));
+  r = await chat({ model: 'relay-claude-mock-1-low', messages: USER, tools: TOOLS });
+  const tcThink = r.json?.choices?.[0]?.message?.tool_calls?.[0];
+  ok(r.status === 200 && r.json.choices[0].message.reasoning_content === 'ponder' && tcThink?.id === 'toolu_01', 'anthropic 非流式思考 + tool_use', r.text.slice(0, 300));
+  L = await last('an');
+  ok(String(L.headers['anthropic-beta'] || '').includes('interleaved-thinking-2025-05-14'), '手动 extended thinking 带工具时加 interleaved-thinking beta');
+  r = await chat({ model: 'relay-claude-mock-1-low', messages: [...USER, { role: 'assistant', content: null, tool_calls: [tcThink] }, { role: 'tool', tool_call_id: tcThink.id, content: 'sunny 25C' }], tools: TOOLS });
+  L = await last('an');
+  const asst = (L.body.messages || []).find(m => m.role === 'assistant');
+  ok(r.status === 200 && asst?.content?.[0]?.type === 'thinking' && asst.content[0].signature === 'sig-think' && asst.content.some(b => b.type === 'tool_use' && b.id === 'toolu_01'), '非流式工具轮次回传 thinking signature', JSON.stringify(asst?.content));
+  r = await chat({ model: 'relay-claude-mock-1-low', messages: USER, tools: TOOLS, stream: true });
+  a = assemble(parseSse(r.text).chunks);
+  ok(a.reasoning === 'ponder' && a.tools[0]?.id === 'toolu_01', '流式思考 + tool_use');
+  r = await chat({ model: 'relay-claude-mock-1-low', messages: [...USER, { role: 'assistant', content: null, tool_calls: [{ id: a.tools[0].id, type: 'function', function: { name: 'get_weather', arguments: a.tools[0].arguments } }] }, { role: 'tool', tool_call_id: a.tools[0].id, content: 'sunny 25C' }], tools: TOOLS, stream: true });
+  L = await last('an');
+  const asstS = (L.body.messages || []).find(m => m.role === 'assistant');
+  ok(r.status === 200 && asstS?.content?.[0]?.signature === 'sig-stream' && asstS.content.some(b => b.type === 'tool_use'), '流式 signature_delta 在下一轮 tool 回传', JSON.stringify(asstS?.content));
+  r = await chat({ model: 'relay-claude-mock-1', messages: [{ role: 'user', content: 'hi' }, { role: 'assistant', thinking_blocks: [{ type: 'thinking', thinking: 'kept', signature: 'sig-client' }, { type: 'redacted_thinking', data: 'enc' }], tool_calls: [{ id: 'toolu_x', type: 'function', function: { name: 'get_weather', arguments: '{"city":"Beijing"}' } }] }, { role: 'tool', tool_call_id: 'toolu_x', content: 'sunny' }], tools: TOOLS });
+  L = await last('an');
+  const clientAsst = (L.body.messages || []).find(m => m.role === 'assistant');
+  ok(r.status === 200 && clientAsst?.content?.[0]?.signature === 'sig-client' && clientAsst.content[1]?.type === 'redacted_thinking' && clientAsst.content[1].data === 'enc' && clientAsst.content[2]?.type === 'tool_use', '客户端带回的 thinking / redacted_thinking 原样转发给 Anthropic', JSON.stringify(clientAsst?.content));
 
   console.log('\n[gemini]');
   r = await chat({ model: 'relay-gemini-mock', messages: [{ role: 'system', content: 'sys' }, { role: 'user', content: 'hi' }], max_tokens: 50, stop: ['X'] });
@@ -273,6 +332,27 @@ async function main() {
   await toolRoundTrip('relay-gemini-mock', 'gemini');
   L = await last('gm');
   ok(L.body.tools[0].functionDeclarations[0].name === 'get_weather' && L.body.contents.some(c => c.role === 'model' && c.parts[0].functionCall) && L.body.contents.some(c => c.parts.some(p => p.functionResponse?.name === 'get_weather')), 'gemini：tools → functionDeclarations，tool_calls → functionCall，tool → functionResponse；thoughtSignature 回传（mock 校验）');
+  r = await chat({ model: 'relay-gm/gemini-2.5-flash-low', messages: [{ role: 'user', content: 'hi' }] });
+  L = await last('gm');
+  ok(r.status === 200 && L.path.includes(':generateContent') && !L.path.includes('stream') && L.body.generationConfig.thinkingConfig.thinkingBudget === 1024 && L.body.generationConfig.thinkingConfig.includeThoughts === true && L.body.generationConfig.thinkingConfig.thinkingLevel == null, 'gemini 2.5 非流式 -low → thinkingBudget 1024 + includeThoughts', JSON.stringify(L.body.generationConfig));
+  r = await chat({ model: 'relay-gm/gemini-2.5-flash-low', messages: [{ role: 'user', content: 'hi' }], stream: true });
+  L = await last('gm');
+  ok(r.status === 200 && L.path.includes('streamGenerateContent?alt=sse') && L.body.generationConfig.thinkingConfig.thinkingBudget === 1024 && L.body.generationConfig.thinkingConfig.includeThoughts === true, 'gemini 2.5 流式同样带 thinkingBudget');
+  r = await chat({ model: 'relay-gm/gemini-3-flash-high', messages: [{ role: 'user', content: 'hi' }] });
+  L = await last('gm');
+  ok(L.body.generationConfig.thinkingConfig.thinkingLevel === 'high' && L.body.generationConfig.thinkingConfig.includeThoughts === true && L.body.generationConfig.thinkingConfig.thinkingBudget == null, 'gemini 3 -high → thinkingLevel high，不发 thinkingBudget', JSON.stringify(L.body.generationConfig.thinkingConfig));
+  r = await chat({ model: 'relay-gm/gemini-3-flash-xhigh', messages: [{ role: 'user', content: 'hi' }], stream: true });
+  L = await last('gm');
+  ok(L.path.includes('streamGenerateContent') && L.body.generationConfig.thinkingConfig.thinkingLevel === 'high', 'gemini 3 流式 -xhigh → thinkingLevel high');
+  r = await chat({ model: 'relay-gm/gemini-4-argon-minimal', messages: [{ role: 'user', content: 'hi' }] });
+  L = await last('gm');
+  ok(L.body.generationConfig.thinkingConfig.thinkingLevel === 'low', 'Gemini 4 不支持 minimal，-minimal → thinkingLevel low');
+  r = await chat({ model: 'relay-gm/gemini-2.5-flash', messages: [{ role: 'user', content: 'hi' }], reasoning_effort: 'off' });
+  L = await last('gm');
+  ok(L.body.generationConfig.thinkingConfig.thinkingBudget === 0 && L.body.generationConfig.thinkingConfig.includeThoughts === false, 'gemini 2.5 Flash off → thinkingBudget 0');
+  r = await chat({ model: 'relay-gm/gemini-2.5-pro', messages: [{ role: 'user', content: 'hi' }], reasoning_effort: 'off' });
+  L = await last('gm');
+  ok(L.body.generationConfig?.thinkingConfig == null, 'gemini 2.5 Pro 不能关闭思考，off 时不发 thinkingConfig', JSON.stringify(L.body.generationConfig));
 
   console.log('\n[azure]');
   r = await chat({ model: 'relay-gpt4o-deploy', messages: [{ role: 'user', content: 'hi' }] });
@@ -304,8 +384,55 @@ async function main() {
   ok(r.status === 200 && /HttpOnly/.test(sc) && /SameSite=Strict/.test(sc), '登录成功，HttpOnly + SameSite=Strict cookie', sc);
   COOKIE = sc.split(';')[0];
   r = await req('GET', '/admin', { headers: { cookie: COOKIE } }); ok(r.status === 200 && r.text.includes('upstream/save'), '登录后 /admin 返回完整管理页');
-  ok(['添加上游', '测试通过', '启动隧道', 'Cursor 已请求'].every(s => r.text.includes(s)), '管理页包含四步清单');
-  ok(r.text.includes('confirm_admin_remote') && r.text.includes('远程管理已开启'), '远程管理需确认，开启时有警告');
+  const adminPage = r.text;
+  ok(adminPage.includes('思考深度') && adminPage.includes('id="eEffort"') && adminPage.includes('id="eBudget"') && adminPage.includes('id="eModelReason"'), '管理页可设置思考深度、预算和按模型覆盖');
+  async function putUp(name, extra) {
+    const u = (await admin('state')).json.upstreams.find(x => x.name === name);
+    return admin('upstream/save', { original_name: name, upstream: {
+      name: u.name, format: u.format, base_url: u.base_url, api_key: '', api_key_env: u.api_key_env || '',
+      fallback: (u.fallback || []).join(', '), api_version: u.api_version || '', key_in_query: !!u.key_in_query,
+      timeout_ms: u.timeout_ms || 0, enabled: u.enabled !== false, headers: u.headers || {}, models: (u.models || []).join('\n'),
+      reasoning_effort: extra.reasoning_effort ?? '',
+      reasoning_budget: Object.prototype.hasOwnProperty.call(extra, 'reasoning_budget') ? extra.reasoning_budget : null,
+      model_reasoning: extra.model_reasoning || {},
+    } });
+  }
+  console.log('\n[思考深度配置优先级]');
+  r = await putUp('an', { reasoning_effort: 'low', reasoning_budget: 3000, model_reasoning: { 'claude-mock-1': { effort: 'medium', budget: 6000 }, bad: { effort: 'nope' } } });
+  ok(r.status === 200 && r.json.upstream.reasoning_effort === 'low' && r.json.upstream.reasoning_budget === 3000 && r.json.upstream.model_reasoning['claude-mock-1'].budget === 6000 && r.json.upstream.model_reasoning.bad == null, '保存思考默认值，并丢掉非法的按模型强度', JSON.stringify(r.json.upstream.model_reasoning));
+  ok(JSON.parse(fs.readFileSync(CONFIG, 'utf8')).upstreams.find(u => u.name === 'an').reasoning_budget === 3000, '思考配置写入 config.json');
+  r = await chat({ model: 'relay-claude-mock-1', messages: [{ role: 'user', content: 'hi' }] });
+  L = await last('an');
+  ok(L.body.thinking?.type === 'enabled' && L.body.thinking.budget_tokens === 6000, '按模型预算优先于上游预算', JSON.stringify(L.body.thinking));
+  r = await chat({ model: 'relay-claude-mock-1', messages: [{ role: 'user', content: 'hi' }], reasoning_effort: 'high' });
+  L = await last('an');
+  ok(L.body.thinking?.budget_tokens === 16384, '请求 reasoning_effort 优先于按模型预算');
+  r = await chat({ model: 'relay-claude-mock-1-xhigh', messages: [{ role: 'user', content: 'hi' }] });
+  L = await last('an');
+  ok(L.body.model === 'claude-mock-1' && L.body.thinking?.budget_tokens === 32768, '模型名后缀优先于按模型与上游默认');
+  r = await chat({ model: 'relay-an/claude-sonnet-4-5', messages: [{ role: 'user', content: 'hi' }] });
+  L = await last('an');
+  ok(L.body.thinking?.type === 'enabled' && L.body.thinking.budget_tokens === 3000 && L.body.output_config == null, '未单独配置的模型使用上游默认强度和预算');
+  r = await chat({ model: 'relay-an/claude-sonnet-4-6', messages: [{ role: 'user', content: 'hi' }] });
+  L = await last('an');
+  ok(L.body.thinking?.type === 'adaptive' && L.body.output_config?.effort === 'low' && L.body.thinking.budget_tokens == null, '上游默认 low 在 Claude 4.6 上变成 adaptive effort，预算不发给 adaptive 模型');
+  r = await putUp('gm', { reasoning_effort: 'low', reasoning_budget: 2222, model_reasoning: { 'gemini-2.5-flash': { effort: 'high', budget: 4096 } } });
+  ok(r.status === 200, '保存 gemini 思考配置', r.text);
+  r = await chat({ model: 'relay-gm/gemini-2.5-flash', messages: [{ role: 'user', content: 'hi' }] });
+  L = await last('gm');
+  ok(L.body.generationConfig.thinkingConfig.thinkingBudget === 4096 && L.body.generationConfig.thinkingConfig.includeThoughts === true, 'gemini 按模型预算覆盖上游预算');
+  r = await chat({ model: 'relay-gm/gemini-2.5-pro', messages: [{ role: 'user', content: 'hi' }] });
+  L = await last('gm');
+  ok(L.body.generationConfig.thinkingConfig.thinkingBudget === 2222, 'gemini 未单独配置的 2.5 模型用上游预算');
+  r = await chat({ model: 'relay-gm/gemini-2.5-flash-high', messages: [{ role: 'user', content: 'hi' }], stream: true });
+  L = await last('gm');
+  ok(L.body.generationConfig.thinkingConfig.thinkingBudget === 16384 && L.path.includes('streamGenerateContent'), 'gemini 后缀优先于按模型预算（流式）');
+  await putUp('an', {}); await putUp('gm', {});
+  r = await chat({ model: 'relay-claude-mock-1', messages: [{ role: 'user', content: 'hi' }] });
+  L = await last('an');
+  ok(L.body.thinking == null && L.body.max_tokens === 8192, '清空思考配置后不再发送 thinking');
+  ok(['添加上游', '测试通过', '启动隧道', 'Cursor 已请求'].every(s => adminPage.includes(s)), '管理页包含四步清单');
+  ok(adminPage.includes('confirm_admin_remote') && adminPage.includes('远程管理已开启'), '远程管理需确认，开启时有警告');
   r = await admin('state');
   ok(r.status === 200 && r.json.upstreams.length === 11 && !r.text.includes('sk-oa') && !r.text.includes('sk-an') && r.json.upstreams.find(u => u.name === 'oa').api_key_set, 'state 接口不泄露上游 key（只返回掩码）');
   ok(r.json.admin_remote === false, 'state.admin_remote 默认 false');
