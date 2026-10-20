@@ -1,8 +1,23 @@
 # api2cursor
 
+<p align="center">
+  <img src="docs/logo.png" alt="api2cursor" width="520">
+</p>
+
 **把任意模型接进 Cursor。** 一个零依赖的本地代理：把中转站、Anthropic Claude、Google Gemini、Azure OpenAI、OpenAI Responses API 以及 Ollama / LM Studio 等本地模型，统一变成 Cursor 认识的 OpenAI 接口，再通过 Cursor 的 **Override OpenAI Base URL** 接入。附带网页配置界面。
 
 ![api2cursor 配置页](docs/screenshot.png)
+
+<details>
+<summary>更多截图</summary>
+
+![登录页](docs/screenshot-login.png)
+
+![手机宽度](docs/screenshot-mobile.png)
+
+![展开更多](docs/screenshot-more.png)
+
+</details>
 
 - 单文件 `server.mjs` + `admin.html`，只用 Node 内置模块，**没有 npm 依赖**，Node 18+ 即可运行（macOS / Windows / Linux）
 - 网页配置页：增删改上游、获取模型、一键测试、开关隧道、复制 Cursor 设置、查看请求日志，**改动即时生效**
