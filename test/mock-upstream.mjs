@@ -2,6 +2,7 @@
 import http from 'node:http';
 const PORT = Number(process.env.MOCK_PORT || 9901);
 const last = {};
+const hits = {};
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const json = (res, s, o) => { res.writeHead(s, { 'content-type': 'application/json' }); res.end(JSON.stringify(o)); };
 const sse = (res) => res.writeHead(200, { 'content-type': 'text/event-stream' });
@@ -130,8 +131,14 @@ http.createServer(async (req, res) => {
   let body = {}; try { body = raw ? JSON.parse(raw) : {}; } catch { }
   const p = url.pathname;
   if (p.startsWith('/_last/')) return json(res, 200, last[p.slice(7)] || null);
+  if (p.startsWith('/_hits/')) return json(res, 200, hits[p.slice(7)] || []);
   const tag = p.split('/')[1];
-  if (req.method === 'POST') last[tag] = { path: p + url.search, headers: req.headers, body };
+  if (req.method === 'POST') {
+    const rec = { path: p + url.search, headers: req.headers, body };
+    last[tag] = rec;
+    (hits[tag] ||= []).push(rec);
+    if (hits[tag].length > 80) hits[tag].shift();
+  }
   try {
     if (p === '/oa/v1/models' || p === '/rs/v1/models') return json(res, 200, { object: 'list', data: [{ id: 'gpt-mock' }, { id: 'claude-mock-via-oa' }] });
     if (p === '/an/v1/models') return json(res, 200, { data: [{ id: 'claude-mock-1', type: 'model' }] });
@@ -139,6 +146,8 @@ http.createServer(async (req, res) => {
     if (p === '/oa/v1/chat/completions') {
       if (req.headers.authorization !== 'Bearer sk-oa') return json(res, 401, { error: { message: 'Incorrect API key', type: 'invalid_request_error', code: 'invalid_api_key' } });
       if (body.model === 'fail500') return json(res, 500, { error: { message: 'boom', type: 'server_error' } });
+      if (body.model === 'fail400') return json(res, 400, { error: { message: 'bad request payload', type: 'invalid_request_error' } });
+      if (body.model === 'effort-reject' && body.reasoning_effort === 'max') return json(res, 400, { error: { message: 'Invalid reasoning_effort: max is not supported', type: 'invalid_request_error', param: 'reasoning_effort' } });
       return openaiChat(req, res, body, 'openai');
     }
     if (p === '/local/v1/chat/completions') { if (req.headers.authorization) return json(res, 400, { error: { message: 'unexpected auth' } }); return openaiChat(req, res, body, 'local'); }
