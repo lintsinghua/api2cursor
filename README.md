@@ -128,7 +128,7 @@ api2cursor 1.0.0 已启动: http://127.0.0.1:8787
 | `models` | `{}` | 别名：`"显示名": { "upstream": "上游名", "model": "真实模型名" }` |
 | `upstreams[]` | | 见下 |
 
-每个上游：`name`、`enabled`、`format`、`base_url`、`api_key`（也可写 `"env:变量名"`）、`api_key_env`（从环境变量读 key）、`headers`（额外请求头）、`models`（留空则自动从上游拉取）、`fallback`（备用上游名列表）、`api_version`（Azure）、`key_in_query`（Gemini 把 key 放到 `?key=`）、`timeout_ms`、`reasoning_effort`（默认思考深度，见下）、`reasoning_budget`（token 预算，留空则按强度映射）、`model_reasoning`（按模型覆盖，`{ "模型名": { "effort": "high", "budget": 16000 } }`）。
+每个上游：`name`、`enabled`、`format`、`base_url`、`api_key`（也可写 `"env:变量名"`）、`api_key_env`（从环境变量读 key）、`headers`（额外请求头）、`models`（留空则自动从上游拉取）、`fallback`（备用上游名列表）、`api_version`（Azure）、`key_in_query`（Gemini 把 key 放到 `?key=`）、`timeout_ms`、`reasoning_effort`（默认思考深度，见下）、`reasoning_budget`（token 预算，留空则按强度映射）、`model_reasoning`（按模型覆盖，`{ "模型名": { "effort": "high", "budget": 16000, "levels": ["low", "medium", "high"] } }`。`levels` 替换内置能力表）。
 
 环境变量：`PORT`、`HOST`、`PROXY_TOKEN`、`MODEL_PREFIX`、`ADMIN_PASSWORD`（指定管理密码）、`ADMIN_REMOTE`（只有 `1` / `true` / `yes` / `on` 会打开远程管理；`0` / `false` / `off` 或空值都保持关闭，并覆盖配置文件）、`RELAY_CONFIG`（配置文件路径）、`RELAY_BASE_URL` / `RELAY_API_KEY` / `RELAY_FORMAT` / `RELAY_MODELS`（快速定义一个名为 `env` 的上游）、`RELAY_TUNNEL=1`（等同 `--tunnel`）、`RELAY_DEBUG=1`（打印翻译后的请求体，不含 key）。
 
@@ -141,18 +141,59 @@ Cursor 发来 `relay-xxx`，先去掉前缀，再按顺序匹配：
 3. 某个已启用上游的 `models` 列表（或自动拉取的列表）里有这个模型
 4. 以上都不中 → 第一个已启用的上游（可在管理页调整顺序）
 
-**思考深度**：`minimal`、`low`、`medium`、`high`、`xhigh`，外加配置里的 `off`。优先级是 **模型名后缀 > 请求体 `reasoning_effort` > 该模型的 `model_reasoning` > 上游的 `reasoning_effort`**。后缀和请求字段会按下面的表决定 token 预算；只有更低优先级的配置才会用 `reasoning_budget` / `model_reasoning.budget` 覆盖表里的数字。没配任何强度时不额外发送思考参数。
+**思考深度**：`minimal`、`low`、`medium`、`high`、`xhigh`、`max`，外加配置里的 `off`。优先级是 **模型名后缀 > 请求体 `reasoning_effort` > 该模型的 `model_reasoning` > 上游的 `reasoning_effort`**。后缀和请求字段会按下面的表决定 token 预算；只有更低优先级的配置才会用 `reasoning_budget` / `model_reasoning.budget` 覆盖表里的数字。没配任何强度时不额外发送思考参数。
 
-| 强度 | openai / azure | openai-responses | Anthropic extended（Claude 4.5 及更早，以及认不出的模型名） | Anthropic adaptive（Claude 4.6+、Claude 5、Fable、Mythos） | Gemini 2.5 `thinkingBudget` | Gemini 3+ / 4 `thinkingLevel` |
+模型名本身就是 `gpt-5.1-codex-max`（可带日期后缀）时，末尾的 `-max` 不会被当成强度。
+
+| 强度 | openai / azure `reasoning_effort` | openai-responses | Anthropic extended（Claude 4.5 及更早，以及认不出的模型名） | Anthropic adaptive（Claude 4.6+、Claude 5、Fable、Mythos） | Gemini 2.5 `thinkingBudget` | Gemini 3+ / 4 `thinkingLevel` |
 | --- | --- | --- | --- | --- | --- | --- |
-| `off` | 不发 `reasoning_effort` | 不发 `reasoning` | 不发 `thinking` | 允许关闭的模型发 `thinking: {type:"disabled"}`；Opus 5.5、Sonnet 5.5、Fable、Mythos 无法关闭，于是不发该字段 | Flash 等发 `0`；Pro 不能关闭，不发 `thinkingConfig` | `minimal`（Gemini 4 / 3.8 不支持 minimal，改为 `low`） |
+| `off` | 支持 `none` 的模型发 `none`；未知模型名省略字段；不能关闭的模型夹到最低档 | 同左，写在 `reasoning.effort` | 不发 `thinking` | 允许关闭的模型发 `thinking: {type:"disabled"}`；不能关闭的模型夹到最低档（Opus 5.5 为 `low`） | Flash 等发 `0`；Pro 不能关闭，夹到 `512` | 夹到该模型最低档（多数是 `minimal`，Gemini 4 / 3.8 是 `low`） |
 | `minimal` | `minimal` | `minimal` | `budget_tokens: 1024` | `effort: "low"` | `512` | `minimal`（Gemini 4 / 3.8 为 `low`） |
 | `low` | `low` | `low` | `2048` | `low` | `1024` | `low` |
 | `medium` | `medium` | `medium` | `8192` | `medium` | `8192` | `medium` |
 | `high` | `high` | `high` | `16384` | `high` | `16384` | `high` |
-| `xhigh` | `xhigh` | `xhigh` | `32768` | `xhigh`；没有 xhigh 但有 `max` 的模型（如 Sonnet 4.6）发 `max` | `24576` | `high` |
+| `xhigh` | `xhigh` | `xhigh` | `32768` | `xhigh`；没有这一档时向下夹到 `high` | `24576` | `high` |
+| `max` | `max` | `max` | `65536` | `max`；没有这一档时向下夹到 `xhigh`，再没有则 `high` | Pro `32768`，Flash `24576` | `high` |
 
-`relay-gpt-5-high` 发给 openai / azure 时是 `reasoning_effort: "high"`，发给 openai-responses 时是 `reasoning: { effort: "high" }`。Claude 4.6 及以上发送 `thinking: {type:"adaptive", display:"summarized"}` 和 `output_config.effort`。更早的 Claude 发送 `thinking: {type:"enabled", budget_tokens:N}`，并保证 `max_tokens` 大于预算；思考开启时去掉不兼容的 `temperature`（`top_p` 只保留 0.95–1）。带工具的手动 extended thinking 会加上 `interleaved-thinking-2025-05-14`。工具多轮里，代理会缓存 thinking 块和 `signature`（以及客户端自己带回的 `thinking_blocks`）再原样回传。Gemini 在思考开启时设置 `includeThoughts: true`。显式 token 预算只作用于 Anthropic extended thinking 和 Gemini 2.5；adaptive / `thinkingLevel` 模型仍按强度发 effort 或 level。Opus 4.5 会同时发送 `budget_tokens` 和 `effort`。
+上表是请求档和模型都支持时发出的值。不支持时按下面的规则夹紧，夹完的档才用来查这张表。
+
+**夹紧**：档位从低到高是 `off < minimal < low < medium < high < xhigh < max`。请求的档不在该模型的支持列表里时，先取不超过它的最近一档（`max` → `xhigh` → `high`）；下面没有再往上取（`minimal` → `low`）。`off` 在模型不能关闭思考时改成它的最低档。请求日志的 `real_model` 写成 `模型 (effort=high)`；发生夹紧或 400 重试后写成 `模型 (effort=max→xhigh)`，也就是实际发出去的档。
+
+内置能力（按官方文档；日期后缀会被去掉再匹配）。`model_reasoning[模型].levels` 会整表替换这一行，中转站的自定模型名靠它纠正：
+
+| 模型 | 支持的档 | 关闭思考 |
+| --- | --- | --- |
+| gpt-5 / gpt-5-mini / gpt-5-nano | minimal, low, medium, high | 不能（`off` → minimal） |
+| gpt-5-codex、gpt-5.1-codex | low, medium, high | 不能 |
+| gpt-5-pro | high | 不能 |
+| gpt-5.1 | none, low, medium, high | `none` |
+| gpt-5.1-codex-max | low, medium, high, xhigh | 不能。名字里的 `-max` 不是后缀 |
+| gpt-5.2、gpt-5.4、gpt-5.5 | none, low, medium, high, xhigh | `none`。`max` → xhigh |
+| gpt-5.2-codex | low, medium, high, xhigh | 不能 |
+| gpt-5.2-pro | medium, high, xhigh | 不能 |
+| gpt-5.6 / sol / terra / luna | none, low, medium, high, xhigh, max | `none` |
+| gpt-6 / gpt-6-sol | none, low, medium, high, xhigh, max | `none` |
+| gpt-6-astra、gpt-6.1 / sol | low, medium, high, xhigh, max | 不能 |
+| o1、o1-pro、o3、o3-mini、o3-pro、o4-mini | low, medium, high | 不能 |
+| 认不出的 OpenAI 名字 | low, medium, high | 省略字段（不发送 `none`） |
+| Opus 4.5 | 预算全档；effort 只有 low, medium, high | 省略 `thinking` |
+| Opus 4.6、Sonnet 4.6、Mythos Preview | low, medium, high, max | 4.6 可 `disabled`；Mythos Preview 不能，`off` → low。`xhigh` → high |
+| Opus 4.7 / 4.8 | low, medium, high, xhigh, max | 可 `disabled` |
+| Opus 5、Sonnet 5、Haiku 5.5 | low, medium, high, xhigh, max | 可 `disabled` |
+| Opus 5.5、Sonnet 5.5 | low, medium, high, xhigh, max | 不能，`off` → low |
+| Fable 5 / 5.1、Mythos 5 / 5.1 | low, medium, high, xhigh, max | 不能，`off` → low |
+| 其他 Claude（含 4.5 与未知名字） | 预算全档，不发 effort | 省略 `thinking` |
+| Gemini 2.5 Flash / Flash-Lite | 预算全档，0 表示关闭 | Flash 发 `0` |
+| Gemini 2.5 Pro | 预算全档，不能为 0 | `off` → 512 |
+| Gemini 3 Flash、3.1 / 3.5 Flash-Lite、3.6 Flash | minimal, low, medium, high | `off` → minimal |
+| Gemini 3.1 Flash-Lite Image | minimal, high | `off` / low / medium → minimal |
+| Gemini 3.8、Gemini 4 / Argon | low, medium, high | `off` / minimal → low |
+| 认不出的 Gemini 名字 | low, medium, high | `off` → low |
+| Gemini 1.x | 不发送思考参数 | — |
+
+上游若返回 400，且正文指出 `reasoning_effort` / `effort` / `thinking` / `budget_tokens` 的值非法或不被支持，代理会把刚发出的那一档从支持列表里去掉，再夹紧重试一次。与思考无关的 400 原样返回。
+
+`relay-gpt-5-high` 发给 openai / azure 时是 `reasoning_effort: "high"`，发给 openai-responses 时是 `reasoning: { effort: "high" }`。Claude 4.6 及以上发送 `thinking: {type:"adaptive", display:"summarized"}` 和 `output_config.effort`。更早的 Claude 发送 `thinking: {type:"enabled", budget_tokens:N}`，并保证 `max_tokens` 大于预算；思考开启时去掉不兼容的 `temperature`（`top_p` 只保留 0.95–1）。带工具的手动 extended thinking 会加上 `interleaved-thinking-2025-05-14`。工具多轮里，代理会缓存 thinking 块和 `signature`（以及客户端自己带回的 `thinking_blocks`）再原样回传。Gemini 在思考开启时设置 `includeThoughts: true`。显式 token 预算只作用于 Anthropic extended thinking 和 Gemini 2.5；adaptive / `thinkingLevel` 模型仍按强度发 effort 或 level。Opus 4.5 会同时发送 `budget_tokens` 和夹紧后的 `effort`。
 
 **备用上游**：主上游返回 5xx / 429、连接失败或超时（在开始向 Cursor 输出之前）时，按 `fallback` 顺序换下一个上游重试，使用同一个真实模型名。
 
@@ -197,7 +238,7 @@ npm run test:tunnel    # 额外测试 cloudflared 隧道（需要外网 7844 端
 ## 已知限制
 
 - 只实现了 Cursor 用到的 `/v1/chat/completions` 和 `/v1/models`；`/v1/responses`、`/v1/embeddings`、`/v1/completions` 仅对 openai 系上游直通。
-- 每个请求只返回一个候选（不支持 `n > 1`）。Claude Opus 5.5、Sonnet 5.5、Fable、Mythos 不能真正关闭思考；Gemini 2.5 Pro 也不能。这些模型上的 `off` 不会发送会被 API 拒绝的字段。
+- 每个请求只返回一个候选（不支持 `n > 1`）。Claude Opus 5.5、Sonnet 5.5、Fable、Mythos 以及 Gemini 2.5 Pro 不能真正关闭思考。这些模型上的 `off` 会夹到该模型允许的最低档，而不是发送会被 API 拒绝的 `disabled` 或 `thinkingBudget: 0`。
 - Gemini 的 http(s) 图片 URL 以 `fileData` 传递，官方 API 可能只接受上传后的文件 URI，建议用 data URL。
 - 备用上游只在开始输出之前切换；输出到一半上游断开会以错误结束。
 - 不支持通过 HTTP 代理访问上游（`HTTPS_PROXY` 不生效）。
@@ -209,7 +250,7 @@ npm run test:tunnel    # 额外测试 cloudflared 隧道（需要外网 7844 端
 
 - **Upstream formats:** `openai` (pass-through for relays, OpenRouter, DeepSeek, Ollama, LM Studio…), `openai-responses`, `anthropic` (`/v1/messages`), `gemini` (`generateContent` / `streamGenerateContent`), and `azure`. Streaming, non-streaming, and tool calls are translated in both directions, including SSE deltas, finish reasons, and usage.
 - **Routing:** a model-name prefix (default `relay-`) keeps Cursor from intercepting `claude-*` / `gpt-*` names. Also supports aliases, per-model upstreams, `upstream/model` addressing, and fallback upstreams on 5xx, 429, or timeout.
-- **Thinking depth:** suffixes `-minimal` / `-low` / `-medium` / `-high` / `-xhigh`, a request `reasoning_effort` field, then per-model `model_reasoning`, then the upstream `reasoning_effort` (`off` disables it where the API allows). OpenAI and Azure get `reasoning_effort`; Responses gets `reasoning.effort`. Claude 4.6+ / Claude 5 get adaptive thinking plus `output_config.effort` (xhigh becomes `max` on models that have max but not xhigh). Claude 4.5 and earlier get `thinking.budget_tokens` (1024 / 2048 / 8192 / 16384 / 32768); `max_tokens` is raised above the budget, and signed thinking blocks are replayed on tool turns. Gemini 2.5 gets `thinkingBudget` (512 / 1024 / 8192 / 16384 / 24576); Gemini 3+ gets `thinkingLevel`. `includeThoughts` is true whenever thinking is on. An explicit `reasoning_budget` overrides the table only when the level came from config, not from a suffix or request field. Set these in the admin page or in `config.json`.
+- **Thinking depth:** suffixes `-minimal` / `-low` / `-medium` / `-high` / `-xhigh` / `-max`, a request `reasoning_effort` field, then per-model `model_reasoning`, then the upstream `reasoning_effort`. `off` disables thinking where the API allows; otherwise it clamps to the lowest supported level. OpenAI and Azure get `reasoning_effort` (`off` is sent as `none` only when that model documents `none`); Responses gets `reasoning.effort`. Claude 4.6+ / Claude 5 / Fable / Mythos get adaptive thinking plus `output_config.effort` (`max` on Opus 5.5 and the other models that list it). Claude 4.5 and earlier get `thinking.budget_tokens` (1024 / 2048 / 8192 / 16384 / 32768 / 65536). Gemini 2.5 gets `thinkingBudget` (512 / 1024 / 8192 / 16384 / 24576 / 32768, Flash capped at 24576); Gemini 3+ gets `thinkingLevel` (`minimal` / `low` / `medium` / `high` only). Unsupported levels clamp to the nearest supported one: downward `max` → `xhigh` → `high`, upward `minimal` → `low`. Unknown OpenAI names allow only `low` / `medium` / `high` and omit the field on `off`. `model_reasoning[model].levels` replaces the built-in set. A 400 that says the effort or thinking value is invalid is retried once at the next clamped level. The request log `real_model` column shows the level actually sent (`gpt-5.5 (effort=max→xhigh)`). Opus 4.5 sends both `budget_tokens` and an effort clamped to `low` / `medium` / `high`. Set these in the admin page or in `config.json`.
 - **Web console** at `http://127.0.0.1:8787/admin`, password-protected and local-only by default. Tunnel, reverse-proxy, and non-loopback requests get 404 until remote admin is explicitly enabled (`admin_remote: true` with an in-page confirmation, or `ADMIN_REMOTE=1`). While it is on, the page shows a warning. The console is a short setup checklist: add an upstream, test it, start the tunnel, copy the Cursor key / base URL / model names, and confirm a request arrived. Changes apply live and persist to `config.json` (mode 600).
 - **Quick start:** `./start.sh` (macOS/Linux) or `node server.mjs --tunnel` (Windows). Open the console, add an upstream, then paste the proxy token into Cursor as the *OpenAI API Key*, use `<tunnel>/v1` as the *Override OpenAI Base URL*, and add the prefixed model names.
 - **Caveats:** Cursor calls your endpoint from its own servers, so you need a public HTTPS URL. Tab completion does not use custom keys. Your code passes through Cursor's servers and your relay.

@@ -179,6 +179,7 @@ summary:hover{color:var(--fg)}
             <option value="medium">medium</option>
             <option value="high">high</option>
             <option value="xhigh">xhigh</option>
+            <option value="max">max</option>
           </select>
         </div>
         <div>
@@ -186,7 +187,7 @@ summary:hover{color:var(--fg)}
           <input id="eBudget" type="number" step="1" min="-1" placeholder="例如 8192">
         </div>
       </div>
-      <p class="one">优先级：模型名后缀（-minimal / -low / -medium / -high / -xhigh）&gt; 请求 reasoning_effort &gt; 按模型 &gt; 上游默认。Anthropic 4.6+ 与 Claude 5 发送 adaptive 与 effort；Claude 4.5 及以前发送 budget_tokens。Gemini 3+ 发送 thinkingLevel，Gemini 2.5 发送 thinkingBudget。</p>
+      <p class="one">优先级：模型名后缀（-minimal / -low / -medium / -high / -xhigh / -max）&gt; 请求 reasoning_effort &gt; 按模型 &gt; 上游默认。模型不支持的强度会就近夹紧。Anthropic 4.6+ 与 Claude 5 发送 adaptive 与 effort；Claude 4.5 及以前发送 budget_tokens。Gemini 3+ 发送 thinkingLevel，Gemini 2.5 发送 thinkingBudget。</p>
       <div class="row">
         <button type="button" id="fetchBtn">获取模型</button>
         <button type="button" id="allBtn" hidden>全选</button>
@@ -210,7 +211,7 @@ summary:hover{color:var(--fg)}
             <label class="check" id="eGem" for="eKeyQ" hidden><input type="checkbox" id="eKeyQ">Key 放在 ?key=</label></div>
         </div>
         <label class="f" for="eModelReason">按模型覆盖思考</label>
-        <textarea id="eModelReason" placeholder="模型名 强度 [预算]&#10;claude-opus-4-5 high 16000&#10;gemini-2.5-flash off"></textarea>
+        <textarea id="eModelReason" placeholder="模型名 强度 [预算] [levels:档位]&#10;claude-opus-4-5 high 16000&#10;gpt-5 levels:minimal,low,medium,high&#10;gemini-2.5-flash off"></textarea>
         <label class="f" for="eHeaders">请求头</label>
         <textarea id="eHeaders" placeholder="Name: value"></textarea>
       </details>
@@ -412,15 +413,26 @@ function editUp(u){
 }
 function closeEd(){editing=null;$('editor').hidden=true}
 function formatReason(obj){
-  return Object.keys(obj||{}).map(function(k){var v=obj[k]||{};return [k,v.effort||'',v.budget!=null?v.budget:''].filter(function(x){return x!==''&&x!=null}).join(' ')}).join('\n');
+  return Object.keys(obj||{}).map(function(k){
+    var v=obj[k]||{}, bits=[k];
+    if(v.effort) bits.push(v.effort);
+    if(v.budget!=null) bits.push(v.budget);
+    if(v.levels&&v.levels.length) bits.push('levels:'+v.levels.join(','));
+    return bits.join(' ');
+  }).filter(function(line){return line.trim()}).join('\n');
 }
 function parseReason(text){
   var out={};
   String(text||'').split('\n').forEach(function(line){
     var s=line.trim(); if(!s||s.charAt(0)==='#') return;
     var parts=s.split(/\s+/), name=parts[0], entry={};
-    parts.slice(1).forEach(function(p){if(/^-?\d+$/.test(p)) entry.budget=Number(p); else if(p!=='-'&&p!=='*') entry.effort=p});
-    if(entry.effort||entry.budget!=null) out[name]=entry;
+    parts.slice(1).forEach(function(p){
+      var lm=/^levels?:(.+)$/i.exec(p);
+      if(lm){entry.levels=(entry.levels||[]).concat(lm[1].split(/[,|]/).map(function(x){return x.trim()}).filter(Boolean));return}
+      if(/^-?\d+$/.test(p)) entry.budget=Number(p);
+      else if(p!=='-'&&p!=='*') entry.effort=p;
+    });
+    if(entry.effort||entry.budget!=null||(entry.levels&&entry.levels.length)) out[name]=entry;
   });
   return out;
 }

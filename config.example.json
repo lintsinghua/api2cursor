@@ -38,7 +38,10 @@
       "format": "openai-responses",
       "base_url": "https://api.openai.com/v1",
       "api_key": "env:OPENAI_API_KEY",
-      "models": ["gpt-5", "gpt-5-codex"]
+      "models": ["gpt-5", "gpt-5-codex"],
+      "model_reasoning": {
+        "gpt-5": { "levels": ["minimal", "low", "medium", "high"] }
+      }
     },
     {
       "name": "gemini",
