@@ -78,6 +78,35 @@ function checkPassword(pw, stored) {
   if (!salt || !hash) return false;
   return crypto.timingSafeEqual(crypto.scryptSync(String(pw), salt, 32), Buffer.from(hash, 'hex'));
 }
+// 只有布尔 true，或字符串 1/true/yes/on，才算打开。缺省、false、"false"、0、off 都是关闭。
+function parseBool(v, fallback = false) {
+  if (v === true || v === 1) return true;
+  if (v === false || v === 0 || v == null) return false;
+  if (typeof v === 'string') {
+    const s = v.trim().toLowerCase();
+    if (!s) return false;
+    if (['1', 'true', 'yes', 'on'].includes(s)) return true;
+    if (['0', 'false', 'no', 'off'].includes(s)) return false;
+  }
+  return fallback;
+}
+function normLastTest(t) {
+  if (!t || typeof t !== 'object') return null;
+  return { ok: !!t.ok, upstream: String(t.upstream || ''), model: String(t.model || ''), status: Number(t.status) || 0, at: String(t.at || '') };
+}
+function explainHttpError(status, message) {
+  const m = String(message || '');
+  let code = Number(status) || 0;
+  if (!code) { const h = /\bHTTP\s+(\d{3})\b/i.exec(m); if (h) code = Number(h[1]); }
+  if (/7844/.test(m)) return '出站 7844 被拦截。可换网络，或用 ngrok http <端口>，把 https 地址加 /v1 填进 Cursor。';
+  if (code === 401 || /invalid[_\s-]?api[_\s-]?key|incorrect api key|authentication_error|\bbad key\b/i.test(m)) return '密钥被拒绝。检查 API Key。';
+  if (code === 403 && /api key|permission/i.test(m)) return '密钥被拒绝。检查 API Key。';
+  if (code === 404) return /model/i.test(m) ? '没有这个模型。核对模型名，或 Base URL 路径。' : '404：Base URL 路径可能不对。';
+  if (/ENOTFOUND|getaddrinfo|EAI_AGAIN/i.test(m)) return '域名无法解析。检查 Base URL。';
+  if (/ECONNREFUSED/.test(m)) return '连不上该地址。确认服务和端口。';
+  if (code === 429) return '上游限流。稍后重试。';
+  return '';
+}
 
 function loadConfig() {
   let raw = {}, existed = false;
@@ -92,7 +121,10 @@ function loadConfig() {
     proxy_token: raw.proxy_token || '',
     model_prefix: raw.model_prefix ?? 'relay-',
     admin_password_hash: raw.admin_password_hash || '',
-    admin_remote: !!raw.admin_remote,
+    admin_remote: (process.env.ADMIN_REMOTE != null && String(process.env.ADMIN_REMOTE).trim() !== '') ? parseBool(process.env.ADMIN_REMOTE, false) : parseBool(raw.admin_remote, false),
+    known_tunnel_url: typeof raw.known_tunnel_url === 'string' ? raw.known_tunnel_url : '',
+    client_seen: parseBool(raw.client_seen, false),
+    last_test: normLastTest(raw.last_test),
     timeout_ms: Number(raw.timeout_ms) || 120000,
     models: normModels(raw.models),
     upstreams: (raw.upstreams || []).map(normUpstream),
@@ -634,6 +666,7 @@ async function handleProxy(req, res, rawBody, pathSuffix) {
     if (logged) return; logged = true;
     Object.assign(entry, { status, ms: Date.now() - t0 }, extra);
     addLog(entry);
+    if (entry.source === 'client' && !cfg.client_seen) { cfg.client_seen = true; try { saveConfig(); } catch { } }
     log(`${pathSuffix} ${entry.model} -> ${entry.upstream}/${entry.real_model} ${status} ${entry.ms}ms` + (entry.prompt_tokens != null ? ` tok ${entry.prompt_tokens}/${entry.completion_tokens}` : '') + (entry.fallback_from ? ` (fallback from ${entry.fallback_from})` : '') + (entry.error ? ` ERR ${String(entry.error).slice(0, 160)}` : ''));
   };
   const noFallback = !!forced || req.headers['x-relay-no-fallback'] === '1';
@@ -781,7 +814,7 @@ function startTunnel(onUrl) {
       if (m && !m[0].startsWith('https://api.') && !tunnel.url) { tunnel.url = m[0]; tunnel.state = 'connecting'; }
       // 拿到 URL 只代表注册成功；要等到 "Registered tunnel connection" 才真正可用
       if (/Registered tunnel connection/i.test(line) && tunnel.url && tunnel.state !== 'running') { tunnel.state = 'running'; tunnel.error = ''; onUrl && onUrl(tunnel.url); }
-      if (/port 7844/i.test(line) && tunnel.state !== 'running') tunnel.error = '当前网络阻止了 cloudflared 的出站 7844 端口（QUIC/TCP），隧道无法连通。请换个网络，或改用其它内网穿透工具（见 README）';
+      if (/port 7844/i.test(line) && tunnel.state !== 'running') tunnel.error = `出站 7844 被拦截。可换网络，或用 ngrok http ${runtimePort || 8787}，把 https 地址加 /v1 填进 Cursor。`;
     }
   };
   p.stdout.on('data', onData); p.stderr.on('data', onData);
@@ -851,8 +884,8 @@ button{margin-top:14px;width:100%;height:48px;border:0;border-radius:999px;backg
 button:hover{background:#fff;transform:translateY(-1px);box-shadow:0 0 0 1px rgba(255,255,255,.2),0 10px 30px -10px rgba(55,189,248,.55)}
 #e{color:#f87171;font-size:13px;margin-top:10px;min-height:1.2em}p{color:var(--fg-hint);font-size:12px;margin:8px 0 0}
 @media (prefers-reduced-motion:reduce){button{transition:none}button:hover{transform:none}}</style></head><body>
-<form id="f"><div class="b"><i></i>api2cursor</div><h1>管理页登录<span>只对本机开放</span></h1><input id="p" type="password" placeholder="管理密码" aria-label="管理密码" autofocus autocomplete="current-password"><button>登录</button><div id="e" role="alert"></div>
-<p>密码在首次启动时打印在终端里；也可以用环境变量 ADMIN_PASSWORD 指定。</p></form>
+<form id="f"><div class="b"><i></i>api2cursor</div><h1>登录</h1><input id="p" type="password" placeholder="管理密码" aria-label="管理密码" autofocus autocomplete="current-password"><button>登录</button><div id="e" role="alert"></div>
+<p>密码见启动终端。</p></form>
 <script>document.getElementById('f').onsubmit=async function(ev){ev.preventDefault();var r=await fetch('/admin/api/login',{method:'POST',headers:{'content-type':'application/json','x-relay-admin':'1'},body:JSON.stringify({password:document.getElementById('p').value})});
 if(r.ok)location.href='/admin';else{var j=await r.json().catch(function(){return{}});document.getElementById('e').textContent=(j.error&&j.error.message)||('登录失败 '+r.status);}};</script></body></html>`;
 const SEC_HEADERS = { 'x-frame-options': 'DENY', 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer', 'cache-control': 'no-store' };
@@ -901,19 +934,27 @@ async function handleAdmin(req, res, url) {
       version: VERSION, config_path: CONFIG_PATH, host: cfg.host, port: runtimePort, config_port: cfg.port,
       proxy_token: cfg.proxy_token, model_prefix: cfg.model_prefix, admin_remote: cfg.admin_remote, timeout_ms: cfg.timeout_ms,
       password_from_env: !!process.env.ADMIN_PASSWORD,
+      known_tunnel_url: cfg.known_tunnel_url, client_seen: cfg.client_seen, last_test: cfg.last_test,
       models: cfg.models, upstreams: cfg.upstreams.map(maskUp), formats: FORMATS,
-      tunnel: { state: tunnel.state, url: tunnel.url, error: tunnel.error, log: tunnel.log.slice(-15), binary: cloudflaredBin() },
+      tunnel: { state: tunnel.state, url: tunnel.url, error: tunnel.error, log: tunnel.log.slice(-15), binary: cloudflaredBin(), url_changed: !!(tunnel.url && cfg.known_tunnel_url && tunnel.url !== cfg.known_tunnel_url) },
       cursor: await cursorSettings(),
     });
   }
   if (api === 'settings' && POST) {
+    if (body.admin_remote !== undefined && parseBool(body.admin_remote, false) && body.confirm_admin_remote !== true) return adminErr(res, 400, '开启远程管理需要确认');
     if (body.model_prefix !== undefined) {
       const pf = String(body.model_prefix);
       if (/\s/.test(pf)) return adminErr(res, 400, '前缀不能包含空格');
       cfg.model_prefix = pf;
     }
     if (body.timeout_ms !== undefined) { const t = Number(body.timeout_ms); if (!(t >= 1000)) return adminErr(res, 400, 'timeout_ms 至少 1000'); cfg.timeout_ms = t; }
-    if (body.admin_remote !== undefined) cfg.admin_remote = !!body.admin_remote;
+    if (body.admin_remote !== undefined) {
+      const want = parseBool(body.admin_remote, false);
+      if (want) {
+        if (body.confirm_admin_remote !== true) return adminErr(res, 400, '开启远程管理需要确认');
+        cfg.admin_remote = true;
+      } else cfg.admin_remote = false;
+    }
     if (body.models !== undefined) cfg.models = normModels(body.models);
     if (body.port !== undefined) { const pn = Number(body.port); if (!(pn > 0 && pn < 65536)) return adminErr(res, 400, '端口无效'); cfg.port = pn; }
     saveConfig(); return ok({ restart_needed: cfg.port !== runtimePort });
@@ -973,7 +1014,7 @@ async function handleAdmin(req, res, url) {
     } else u = findUp(String(body.name));
     if (!u) return adminErr(res, 404, '不存在');
     try { const list = await fetchModels(u, true); if (u.name.startsWith('__draft__')) modelCache.delete(u.name); return ok({ models: list }); }
-    catch (e) { if (u.name.startsWith('__draft__')) modelCache.delete(u.name); return adminErr(res, 502, e.message); }
+    catch (e) { if (u.name.startsWith('__draft__')) modelCache.delete(u.name); return sendJson(res, 502, { error: { message: e.message, hint: explainHttpError(0, e.message) } }, SEC_HEADERS); }
   }
   if (api === 'test' && POST) {
     const u = findUp(String(body.upstream || '')); if (!u) return adminErr(res, 404, '上游不存在');
@@ -989,10 +1030,13 @@ async function handleAdmin(req, res, url) {
         timeout: (u.timeout_ms || cfg.timeout_ms) + 5000,
       });
       const text = await readAll(rr); const ms = Date.now() - t0;
-      if (rr.statusCode >= 400) return ok({ success: false, status: rr.statusCode, ms, model, error: String(errMessage(text)).slice(0, 800) });
+      const rawErr = String(errMessage(text)).slice(0, 800);
+      const hint = explainHttpError(rr.statusCode, rawErr);
+      if (rr.statusCode >= 400) { cfg.last_test = { ok: false, upstream: u.name, model, status: rr.statusCode, at: now() }; saveConfig(); return ok({ success: false, status: rr.statusCode, ms, model, error: rawErr, hint }); }
       const j = JSON.parse(text), m = j.choices?.[0]?.message || {};
-      return ok({ success: true, status: rr.statusCode, ms, model, reply: String(m.content || (m.tool_calls ? '[tool_calls]' : '') || m.reasoning_content || '').slice(0, 500), usage: j.usage || null });
-    } catch (e) { return ok({ success: false, status: 0, ms: Date.now() - t0, model, error: e.message }); }
+      cfg.last_test = { ok: true, upstream: u.name, model, status: rr.statusCode, at: now() }; saveConfig();
+      return ok({ success: true, status: rr.statusCode, ms, model, reply: String(m.content || (m.tool_calls ? '[tool_calls]' : '') || m.reasoning_content || '').slice(0, 500), usage: j.usage || null, hint: '' });
+    } catch (e) { cfg.last_test = { ok: false, upstream: u.name, model, status: 0, at: now() }; saveConfig(); return ok({ success: false, status: 0, ms: Date.now() - t0, model, error: e.message, hint: explainHttpError(0, e.message) }); }
   }
   if (api === 'tunnel/start' && POST) {
     startTunnel(u => log('隧道已就绪: ' + u));
@@ -1000,6 +1044,7 @@ async function handleAdmin(req, res, url) {
     return ok({ tunnel: { state: tunnel.state, url: tunnel.url, error: tunnel.error } });
   }
   if (api === 'tunnel/stop' && POST) { stopTunnel(); return ok(); }
+  if (api === 'tunnel/ack' && POST) { cfg.known_tunnel_url = String(body.url || tunnel.url || ''); saveConfig(); return ok({ known_tunnel_url: cfg.known_tunnel_url }); }
   if (api === 'logs' && req.method === 'GET') return ok({ logs: reqLog.slice(0, 200) });
   if (api === 'logs/clear' && POST) { reqLog.length = 0; return ok(); }
   return adminErr(res, 404, 'unknown api');

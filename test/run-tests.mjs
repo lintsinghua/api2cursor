@@ -37,10 +37,10 @@ let pass = 0, fail = 0; const failures = [];
 function ok(cond, name, extra = '') { if (cond) { pass++; console.log('  ✔ ' + name); } else { fail++; failures.push(name); console.log('  ✘ ' + name + (extra ? '  → ' + String(extra).slice(0, 300) : '')); } }
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-function req(method, p, { body, headers = {}, port = PORT, raw = false } = {}) {
+function req(method, p, { body, headers = {}, port = PORT, host = '127.0.0.1', raw = false } = {}) {
   return new Promise((resolve, reject) => {
     const data = body === undefined ? undefined : (typeof body === 'string' ? body : JSON.stringify(body));
-    const r = http.request({ host: '127.0.0.1', port, method, path: p, headers: { ...(data ? { 'content-type': 'application/json', 'content-length': Buffer.byteLength(data) } : {}), ...headers } }, res => {
+    const r = http.request({ host, port, method, path: p, headers: { ...(data ? { 'content-type': 'application/json', 'content-length': Buffer.byteLength(data) } : {}), ...headers } }, res => {
       const chunks = []; const times = [];
       res.on('data', c => { chunks.push(c); times.push(Date.now()); });
       res.on('end', () => {
@@ -100,6 +100,81 @@ async function toolRoundTrip(model, label) {
   return { r1, a2 };
 }
 
+function lanIP() {
+  for (const list of Object.values(os.networkInterfaces())) {
+    for (const n of list || []) if ((n.family === 'IPv4' || n.family === 4) && !n.internal) return n.address;
+  }
+  return '';
+}
+async function withServer(port, cfgExtra, envExtra, fn) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'a2c-remote-'));
+  const configPath = path.join(dir, 'config.json');
+  fs.writeFileSync(configPath, JSON.stringify({ port, model_prefix: 'relay-', timeout_ms: 8000, upstreams: [], ...cfgExtra }));
+  const out = [];
+  const child = spawn(process.execPath, [path.join(DIR, '..', 'server.mjs')], {
+    env: { ...process.env, RELAY_CONFIG: configPath, PORT: String(port), ADMIN_PASSWORD: 'remote-test-pw', RELAY_BASE_URL: '', HOST: '0.0.0.0', ...envExtra },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  child.stdout.on('data', d => out.push(String(d)));
+  child.stderr.on('data', d => out.push(String(d)));
+  const kill = () => { try { child.kill(); } catch { } };
+  try {
+    for (let i = 0; i < 50; i++) { await sleep(100); if (/已启动/.test(out.join(''))) break; }
+    if (!/已启动/.test(out.join(''))) throw new Error('remote server did not start: ' + out.join('').slice(0, 400));
+    await fn({ port, configPath, out });
+  } finally { kill(); fs.rmSync(dir, { recursive: true, force: true }); }
+}
+async function remoteMatrix() {
+  const ip = lanIP();
+  ok(!!ip, '存在非回环 IPv4，用于管理页来源检查', ip);
+  if (!ip) return;
+  await withServer(18790, {}, {}, async ({ port, configPath }) => {
+    const saved = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    ok(saved.admin_remote === false, '监听 0.0.0.0 时 admin_remote 仍默认 false');
+    let r = await req('GET', '/admin', { port }); ok(r.status === 200 && /type="password"/.test(r.text), '回环访问管理页得到登录页');
+    r = await req('GET', '/admin', { port, host: ip }); ok(r.status === 404, '非回环访问 /admin → 404', r.status + ' ' + ip);
+    r = await req('GET', '/admin/api/state', { port, host: ip, headers: { 'x-relay-admin': '1' } }); ok(r.status === 404, '非回环访问管理 API → 404');
+    r = await req('GET', '/admin', { port, headers: { 'cf-connecting-ip': '8.8.8.8' } }); ok(r.status === 404, '回环但带隧道头仍 404');
+    r = await req('POST', '/admin/api/login', { port, body: { password: 'remote-test-pw' }, headers: { 'x-relay-admin': '1' } });
+    ok(r.status === 200, '回环可以登录');
+    const cookie = String(r.headers['set-cookie'] || '').split(';')[0];
+    const call = (p, body) => req(body === undefined ? 'GET' : 'POST', '/admin/api/' + p, { port, body, headers: { 'x-relay-admin': '1', cookie, ...(body === undefined ? {} : {}) } });
+    r = await call('settings', { admin_remote: true });
+    ok(r.status === 400, '侧车服务未确认不能开启远程管理');
+    r = await req('GET', '/admin', { port, host: ip }); ok(r.status === 404, '拒绝开启后非回环仍 404');
+    r = await call('settings', { admin_remote: true, confirm_admin_remote: true });
+    ok(r.status === 200 && (await call('state')).json.admin_remote === true, '确认后才打开远程管理');
+    r = await req('GET', '/admin', { port, host: ip }); ok(r.status === 200 && /type="password"/.test(r.text), '开启后非回环得到登录页而不是管理接口数据', r.status);
+    r = await req('GET', '/admin', { port, host: ip, headers: { 'cf-connecting-ip': '8.8.8.8' } }); ok(r.status === 200, '开启后隧道头不再 404');
+    r = await call('settings', { admin_remote: false });
+    ok((await call('state')).json.admin_remote === false, '可以关闭远程管理');
+    r = await req('GET', '/admin', { port, host: ip }); ok(r.status === 404, '关闭后非回环恢复 404');
+  });
+  await withServer(18791, { admin_remote: 'false' }, { HOST: '127.0.0.1' }, async ({ configPath }) => {
+    ok(JSON.parse(fs.readFileSync(configPath, 'utf8')).admin_remote === false, '配置里的字符串 "false" 不会打开远程管理');
+  });
+  await withServer(18792, { admin_remote: 'off' }, { HOST: '127.0.0.1' }, async ({ port }) => {
+    const r = await req('GET', '/admin', { port, headers: { 'x-forwarded-for': '9.9.9.9' } });
+    ok(r.status === 404, '配置 "off" 时反代头仍 404');
+  });
+  await withServer(18793, { admin_remote: true }, { ADMIN_REMOTE: '0' }, async ({ port }) => {
+    const r = await req('GET', '/admin', { port, host: ip });
+    ok(r.status === 404, 'ADMIN_REMOTE=0 强制关闭，即使配置为 true');
+  });
+  await withServer(18794, { admin_remote: false }, { ADMIN_REMOTE: '1' }, async ({ port }) => {
+    const r = await req('GET', '/admin', { port, host: ip });
+    ok(r.status === 200, 'ADMIN_REMOTE=1 显式开启');
+  });
+  await withServer(18795, { admin_remote: false }, { ADMIN_REMOTE: 'yes' }, async ({ port }) => {
+    const r = await req('GET', '/admin', { port, headers: { 'cf-ray': 'z' } });
+    ok(r.status === 200, 'ADMIN_REMOTE=yes 显式开启');
+  });
+  await withServer(18796, { admin_remote: true }, { ADMIN_REMOTE: 'false' }, async ({ port }) => {
+    const r = await req('GET', '/admin', { port, host: ip });
+    ok(r.status === 404, 'ADMIN_REMOTE=false 强制关闭');
+  });
+}
+
 async function main() {
   const mock = spawn(process.execPath, [path.join(DIR, 'mock-upstream.mjs')], { env: { ...process.env, MOCK_PORT: String(MOCK) }, stdio: ['ignore', 'pipe', 'inherit'] });
   const srvOut = [];
@@ -117,6 +192,7 @@ async function main() {
   ok(!!PASSWORD && !!TOKEN, '首次启动自动生成管理密码和 proxy_token 并打印');
   ok((fs.statSync(CONFIG).mode & 0o777) === 0o600, 'config.json 权限 600', (fs.statSync(CONFIG).mode & 0o777).toString(8));
   ok(!cfgNow.admin_password && /^scrypt\$/.test(cfgNow.admin_password_hash), '管理密码以 scrypt 哈希保存');
+  ok(cfgNow.admin_remote === false, '新建配置 admin_remote 默认为 false');
   ok(!outText.includes('sk-oa') && !outText.includes('sk-an'), '启动日志不含上游 key');
   let r = await req('GET', '/health'); ok(r.status === 200 && r.json.ok, 'GET /health');
   r = await req('OPTIONS', '/v1/chat/completions', { headers: { origin: 'https://x', 'access-control-request-method': 'POST' } }); ok(r.status === 204 && r.headers['access-control-allow-origin'] === '*' && /authorization/.test(r.headers['access-control-allow-headers']), 'OPTIONS CORS 预检');
@@ -218,6 +294,8 @@ async function main() {
   r = await req('GET', '/admin'); ok(r.status === 200 && r.text.includes('type="password"') && !r.text.includes('upstream/save'), '未登录访问 /admin 只得到登录页');
   r = await req('GET', '/admin/api/state', { headers: { 'x-relay-admin': '1' } }); ok(r.status === 401, '未登录调用 API → 401');
   r = await req('GET', '/admin', { headers: { 'cf-connecting-ip': '1.2.3.4' } }); ok(r.status === 404, '经隧道（带 Cf-Connecting-Ip）访问 /admin → 404');
+  r = await req('GET', '/admin', { headers: { 'cf-ray': 'abc-IAD' } }); ok(r.status === 404, '带 Cf-Ray 访问 /admin → 404');
+  r = await req('GET', '/admin', { headers: { forwarded: 'for=1.2.3.4;proto=https' } }); ok(r.status === 404, '带 Forwarded 访问 /admin → 404');
   r = await req('POST', '/admin/api/login', { body: { password: PASSWORD }, headers: { 'x-relay-admin': '1', 'x-forwarded-for': '1.2.3.4' } }); ok(r.status === 404, '经反代访问登录接口 → 404');
   r = await req('POST', '/admin/api/login', { body: { password: PASSWORD } }); ok(r.status === 403, '缺少 x-relay-admin 头（CSRF 防护）→ 403');
   r = await req('POST', '/admin/api/login', { body: { password: 'wrong' }, headers: { 'x-relay-admin': '1' } }); ok(r.status === 401, '错误密码 → 401');
@@ -226,9 +304,17 @@ async function main() {
   ok(r.status === 200 && /HttpOnly/.test(sc) && /SameSite=Strict/.test(sc), '登录成功，HttpOnly + SameSite=Strict cookie', sc);
   COOKIE = sc.split(';')[0];
   r = await req('GET', '/admin', { headers: { cookie: COOKIE } }); ok(r.status === 200 && r.text.includes('upstream/save'), '登录后 /admin 返回完整管理页');
+  ok(['添加上游', '测试通过', '启动隧道', 'Cursor 已请求'].every(s => r.text.includes(s)), '管理页包含四步清单');
+  ok(r.text.includes('confirm_admin_remote') && r.text.includes('远程管理已开启'), '远程管理需确认，开启时有警告');
   r = await admin('state');
   ok(r.status === 200 && r.json.upstreams.length === 11 && !r.text.includes('sk-oa') && !r.text.includes('sk-an') && r.json.upstreams.find(u => u.name === 'oa').api_key_set, 'state 接口不泄露上游 key（只返回掩码）');
+  ok(r.json.admin_remote === false, 'state.admin_remote 默认 false');
+  ok(r.json.client_seen === true, '客户端请求会记入 client_seen');
   ok(r.json.cursor.api_key === TOKEN && r.json.cursor.models.includes('relay-gpt-mock'), 'Cursor 设置面板数据（api_key / 模型名）');
+  r = await admin('settings', { admin_remote: true });
+  ok(r.status === 400 && (await admin('state')).json.admin_remote === false, '未带确认不能开启远程管理', r.text);
+  r = await admin('settings', { admin_remote: 'true' });
+  ok(r.status === 400 && (await admin('state')).json.admin_remote === false, '字符串 true 且未确认不能开启远程管理');
   // 新增上游
   r = await admin('upstream/save', { upstream: { name: 'new1', format: 'openai', base_url: `${M}/oa/v1`, api_key: 'sk-oa', models: 'gpt-new-a, gpt-new-b', headers: 'X-Custom: fromui' } });
   ok(r.status === 200 && r.json.upstream.api_key_masked && !r.text.includes('sk-oa'), '新增上游（返回值 key 已掩码）', r.text);
@@ -249,6 +335,16 @@ async function main() {
     ok(r.status === 200 && r.json.success && /pong/.test(r.json.reply) && r.json.ms >= 0, `“测试”按钮：${u}/${m} → ${r.json.ms}ms “${(r.json.reply || r.json.error || '').slice(0, 40)}”`);
   }
   r = await admin('test', { upstream: 'bad', model: 'gpt-mock' }); ok(r.status === 200 && r.json.success === false && r.json.status === 503, '“测试”失败时显示错误（不走 fallback）', r.text);
+  r = await admin('upstream/save', { upstream: { name: 'badkey', format: 'openai', base_url: `${M}/oa/v1`, api_key: 'wrong', models: 'gpt-mock' } });
+  r = await admin('test', { upstream: 'badkey', model: 'gpt-mock' });
+  ok(r.json.success === false && r.json.status === 401 && /密钥/.test(r.json.hint || ''), '401 提示密钥被拒绝', r.json.hint || r.text);
+  await admin('upstream/delete', { name: 'badkey' });
+  r = await admin('test', { upstream: 'an', model: 'bad-model' });
+  ok(r.json.status === 404 && /模型/.test(r.json.hint || ''), '404 提示没有这个模型', r.json.hint || r.text);
+  r = await admin('upstream/save', { upstream: { name: 'badurl', format: 'openai', base_url: `${M}/nope/v1`, api_key: 'x', models: 'gpt-mock' } });
+  r = await admin('test', { upstream: 'badurl', model: 'gpt-mock' });
+  ok(r.json.status === 404 && /Base URL/.test(r.json.hint || ''), '404 提示 Base URL 路径不对', r.json.hint || r.text);
+  await admin('upstream/delete', { name: 'badurl' });
   r = await admin('test', { upstream: 'off', model: 'ghost' }); ok(r.json.success === true, '停用的上游也能单独测试');
   r = await admin('upstream/toggle', { name: 'new1' }); ok(r.json.enabled === false, '停用上游');
   r = await req('GET', '/v1/models', { headers: auth() }); ok(!r.json.data.some(m => m.id === 'relay-gpt-new-b'), '停用后模型从列表消失');
@@ -276,6 +372,12 @@ async function main() {
   COOKIE = String(r.headers['set-cookie']).split(';')[0];
   for (let i = 0; i < 6; i++) r = await req('POST', '/admin/api/login', { body: { password: 'bad' }, headers: { 'x-relay-admin': '1' } });
   ok(r.status === 429, '连续输错密码触发限流 429');
+
+  r = await admin('tunnel/ack', { url: 'https://old.trycloudflare.com' });
+  ok(r.status === 200 && (await admin('state')).json.known_tunnel_url === 'https://old.trycloudflare.com' && (await admin('state')).json.tunnel.url_changed === false, '记下上次隧道地址；隧道未开时不提示变更');
+
+  console.log('\n[远程管理默认关闭]');
+  await remoteMatrix();
 
   if (process.env.TEST_TUNNEL === '1') {
     console.log('\n[cloudflared 隧道]');

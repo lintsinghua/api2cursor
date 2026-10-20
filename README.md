@@ -51,9 +51,11 @@ api2cursor 1.0.0 已启动: http://127.0.0.1:8787
 
 浏览器打开 `http://127.0.0.1:8787/admin`，用终端里的密码登录：
 
-1. **上游** → 添加上游：填名称、格式、Base URL、API Key → 点“从上游获取模型”→ 保存
-2. **测试** → 选上游和模型 → 测试，看到延迟和回复就说明通了
-3. **Cursor 设置** → 点“启动隧道”，把下面三项复制进 Cursor
+页面按四步走：添加上游 → 测试通过 → 启动隧道 → Cursor 已请求。
+
+1. 添加上游：选格式，填 Base URL 和 API Key，获取模型，保存
+2. 测试：填写模型名，看到「通过」
+3. Cursor：启动隧道，点「全部复制」，按页面里那一行说明填进 Cursor
 
 ### 3. 在 Cursor 里填写
 
@@ -106,14 +108,14 @@ api2cursor 1.0.0 已启动: http://127.0.0.1:8787
 | `port` | `8787` | 端口（修改需重启） |
 | `proxy_token` | 自动生成 | Cursor 里填的 “OpenAI API Key”；管理页可一键重新生成 |
 | `model_prefix` | `relay-` | Cursor 里的模型名 = 前缀 + 模型名 |
-| `admin_remote` | `false` | 是否允许经隧道 / 局域网访问管理页（不建议打开） |
+| `admin_remote` | `false` | 是否允许经隧道 / 局域网访问管理页。默认关闭；只有显式 `true` 才会打开，见下方「远程管理」 |
 | `timeout_ms` | `120000` | 等待上游开始响应的超时 |
 | `models` | `{}` | 别名：`"显示名": { "upstream": "上游名", "model": "真实模型名" }` |
 | `upstreams[]` | | 见下 |
 
 每个上游：`name`、`enabled`、`format`、`base_url`、`api_key`（也可写 `"env:变量名"`）、`api_key_env`（从环境变量读 key）、`headers`（额外请求头）、`models`（留空则自动从上游拉取）、`fallback`（备用上游名列表）、`api_version`（Azure）、`key_in_query`（Gemini 把 key 放到 `?key=`）、`timeout_ms`。
 
-环境变量：`PORT`、`HOST`、`PROXY_TOKEN`、`MODEL_PREFIX`、`ADMIN_PASSWORD`（指定管理密码）、`RELAY_CONFIG`（配置文件路径）、`RELAY_BASE_URL` / `RELAY_API_KEY` / `RELAY_FORMAT` / `RELAY_MODELS`（快速定义一个名为 `env` 的上游）、`RELAY_TUNNEL=1`（等同 `--tunnel`）、`RELAY_DEBUG=1`（打印翻译后的请求体，不含 key）。
+环境变量：`PORT`、`HOST`、`PROXY_TOKEN`、`MODEL_PREFIX`、`ADMIN_PASSWORD`（指定管理密码）、`ADMIN_REMOTE`（只有 `1` / `true` / `yes` / `on` 会打开远程管理；`0` / `false` / `off` 或空值都保持关闭，并覆盖配置文件）、`RELAY_CONFIG`（配置文件路径）、`RELAY_BASE_URL` / `RELAY_API_KEY` / `RELAY_FORMAT` / `RELAY_MODELS`（快速定义一个名为 `env` 的上游）、`RELAY_TUNNEL=1`（等同 `--tunnel`）、`RELAY_DEBUG=1`（打印翻译后的请求体，不含 key）。
 
 ### 路由规则
 
@@ -145,7 +147,8 @@ cloudflared 需要能访问外网的 **7844 端口**（QUIC/UDP 或 TCP）。如
 ## 安全
 
 - `/v1/*` 必须带 `Authorization: Bearer <proxy_token>`，否则 401；口令用常量时间比较。
-- 管理页默认**只允许本机直接访问**：经过隧道（带 `Cf-Connecting-Ip` 等头）或其它反向代理来的请求一律 404。即使打开 `admin_remote`，也必须登录。
+- 管理页默认**只允许本机直接访问**。`admin_remote` 缺省、`false`、`"false"`、`0`、`off` 都是关闭。关闭时：带 `Cf-Connecting-Ip`、`Cf-Ray`、`X-Forwarded-For`、`Forwarded` 的请求，以及来自非回环地址的请求，一律 404。
+- 打开远程管理必须显式操作，不能随其它设置一起被勾上：在管理页点「开启」后还要点「确认开启」（请求里带 `confirm_admin_remote: true`），或在 `config.json` 写 `"admin_remote": true`，或设置 `ADMIN_REMOTE=1`。开启后页面顶部会显示「远程管理已开启」。即使打开，也必须登录。
 - 登录用 HttpOnly + SameSite=Strict cookie；管理 API 要求自定义请求头和 JSON（防 CSRF）；连续输错 5 次锁 1 分钟；密码以 scrypt 哈希保存。
 - 真实上游 key 只保存在本地 `config.json`（600 权限），网页里只显示掩码；控制台和请求日志**不记录 key 和对话内容**。
 
@@ -180,7 +183,7 @@ npm run test:tunnel    # 额外测试 cloudflared 隧道（需要外网 7844 端
 
 - **Upstream formats:** `openai` (pass-through for relays, OpenRouter, DeepSeek, Ollama, LM Studio…), `openai-responses`, `anthropic` (`/v1/messages`), `gemini` (`generateContent` / `streamGenerateContent`), and `azure`. Streaming, non-streaming, and tool calls are translated in both directions, including SSE deltas, finish reasons, and usage.
 - **Routing:** a model-name prefix (default `relay-`) keeps Cursor from intercepting `claude-*` / `gpt-*` names. Also supports aliases, per-model upstreams, `upstream/model` addressing, reasoning effort via `-low`/`-medium`/`-high` suffixes, and fallback upstreams on 5xx, 429, or timeout.
-- **Web console** at `http://127.0.0.1:8787/admin`, password-protected and local-only by default (requests through the tunnel get 404). Use it to manage upstreams, fetch model lists, run one-click tests, start and stop the cloudflared quick tunnel, copy the exact Cursor settings, and view a request log that never records keys or prompts. Changes apply live and persist to `config.json` (mode 600).
+- **Web console** at `http://127.0.0.1:8787/admin`, password-protected and local-only by default. Tunnel, reverse-proxy, and non-loopback requests get 404 until remote admin is explicitly enabled (`admin_remote: true` with an in-page confirmation, or `ADMIN_REMOTE=1`). While it is on, the page shows a warning. The console is a short setup checklist: add an upstream, test it, start the tunnel, copy the Cursor key / base URL / model names, and confirm a request arrived. Changes apply live and persist to `config.json` (mode 600).
 - **Quick start:** `./start.sh` (macOS/Linux) or `node server.mjs --tunnel` (Windows). Open the console, add an upstream, then paste the proxy token into Cursor as the *OpenAI API Key*, use `<tunnel>/v1` as the *Override OpenAI Base URL*, and add the prefixed model names.
 - **Caveats:** Cursor calls your endpoint from its own servers, so you need a public HTTPS URL. Tab completion does not use custom keys. Your code passes through Cursor's servers and your relay.
 
