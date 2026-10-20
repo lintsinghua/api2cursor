@@ -39,21 +39,34 @@ async function anthropic(req, res, body) {
   const tr = lastMsg.content.find?.(b => b.type === 'tool_result');
   const wantTool = body.tools?.length && !tr;
   const text = tr ? `tool said: ${tr.content}` : `pong from anthropic model=${body.model}`;
+  const thinkingOn = body.thinking && body.thinking.type && body.thinking.type !== 'disabled';
   if (!body.stream) {
-    const content = wantTool ? [{ type: 'text', text: 'Let me check.' }, { type: 'tool_use', id: 'toolu_01', name: 'get_weather', input: { city: 'Beijing' } }] : [{ type: 'text', text }];
+    const content = [];
+    if (thinkingOn) content.push({ type: 'thinking', thinking: 'ponder', signature: 'sig-think' });
+    if (wantTool) content.push({ type: 'text', text: 'Let me check.' }, { type: 'tool_use', id: 'toolu_01', name: 'get_weather', input: { city: 'Beijing' } });
+    else content.push({ type: 'text', text });
     return json(res, 200, { id: 'msg_1', type: 'message', role: 'assistant', model: body.model, content, stop_reason: wantTool ? 'tool_use' : 'end_turn', usage: { input_tokens: 20, output_tokens: 9, cache_read_input_tokens: 5 } });
   }
   sse(res);
   const w = (ev, o) => res.write(`event: ${ev}\ndata: ${JSON.stringify({ type: ev, ...o })}\n\n`);
   w('message_start', { message: { id: 'msg_1', type: 'message', role: 'assistant', model: body.model, content: [], usage: { input_tokens: 20, output_tokens: 1 } } });
   w('ping', {});
-  w('content_block_start', { index: 0, content_block: { type: 'text', text: '' } });
-  for (const p of (wantTool ? 'Let me check.' : text).match(/.{1,5}/g)) { await sleep(25); w('content_block_delta', { index: 0, delta: { type: 'text_delta', text: p } }); }
-  w('content_block_stop', { index: 0 });
+  let idx = 0;
+  if (thinkingOn) {
+    w('content_block_start', { index: idx, content_block: { type: 'thinking', thinking: '', signature: '' } });
+    w('content_block_delta', { index: idx, delta: { type: 'thinking_delta', thinking: 'ponder' } });
+    w('content_block_delta', { index: idx, delta: { type: 'signature_delta', signature: 'sig-stream' } });
+    w('content_block_stop', { index: idx });
+    idx++;
+  }
+  w('content_block_start', { index: idx, content_block: { type: 'text', text: '' } });
+  for (const p of (wantTool ? 'Let me check.' : text).match(/.{1,5}/g)) { await sleep(25); w('content_block_delta', { index: idx, delta: { type: 'text_delta', text: p } }); }
+  w('content_block_stop', { index: idx });
   if (wantTool) {
-    w('content_block_start', { index: 1, content_block: { type: 'tool_use', id: 'toolu_01', name: 'get_weather', input: {} } });
-    for (const p of ['', '{"city": ', '"Beijing"}']) { await sleep(25); w('content_block_delta', { index: 1, delta: { type: 'input_json_delta', partial_json: p } }); }
-    w('content_block_stop', { index: 1 });
+    idx++;
+    w('content_block_start', { index: idx, content_block: { type: 'tool_use', id: 'toolu_01', name: 'get_weather', input: {} } });
+    for (const p of ['', '{"city": ', '"Beijing"}']) { await sleep(25); w('content_block_delta', { index: idx, delta: { type: 'input_json_delta', partial_json: p } }); }
+    w('content_block_stop', { index: idx });
   }
   w('message_delta', { delta: { stop_reason: wantTool ? 'tool_use' : 'end_turn' }, usage: { output_tokens: 15 } });
   w('message_stop', {});
