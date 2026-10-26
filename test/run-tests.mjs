@@ -59,6 +59,7 @@ const chat = (body, h = {}) => req('POST', '/v1/chat/completions', { body, heade
 const adminH = (extra = {}) => ({ 'x-relay-admin': '1', cookie: COOKIE, ...extra });
 const admin = (p, body) => req(body === undefined ? 'GET' : 'POST', '/admin/api/' + p, { body, headers: adminH() });
 const last = async (tag) => (await req('GET', '/_last/' + tag, { port: MOCK })).json;
+const hits = async (tag) => (await req('GET', '/_hits/' + tag, { port: MOCK })).json;
 function parseSse(text) {
   const out = []; let done = false;
   for (const block of text.split('\n\n')) { const l = block.trim(); if (!l.startsWith('data:')) continue; const d = l.slice(5).trim(); if (d === '[DONE]') { done = true; continue; } try { out.push(JSON.parse(d)); } catch { } }
@@ -226,6 +227,22 @@ async function main() {
   L = await last('oa'); ok(L.body.model === 'gpt-mock' && L.body.reasoning_effort === 'high', 'openai 后缀优先于请求 reasoning_effort');
   r = await chat({ model: 'relay-gpt-mock', messages: [{ role: 'user', content: 'hi' }], reasoning_effort: 'off' });
   L = await last('oa'); ok(L.body.reasoning_effort == null, 'openai reasoning_effort=off 不转发给上游');
+  r = await chat({ model: 'relay-oa/gpt-5.5-max', messages: [{ role: 'user', content: 'hi' }] });
+  L = await last('oa'); ok(r.status === 200 && L.body.model === 'gpt-5.5' && L.body.reasoning_effort === 'xhigh', 'gpt-5.5 无 max，-max 夹到 xhigh', JSON.stringify(L.body && { model: L.body.model, reasoning_effort: L.body.reasoning_effort }));
+  ok(srvOut.join('').includes('gpt-5.5 (effort=max→xhigh)'), '请求日志 real_model 记下实际发出的强度');
+  r = await chat({ model: 'relay-oa/gpt-5-max', messages: [{ role: 'user', content: 'hi' }] });
+  L = await last('oa'); ok(L.body.model === 'gpt-5' && L.body.reasoning_effort === 'high', 'gpt-5 无 max / xhigh，-max 夹到 high');
+  r = await chat({ model: 'relay-oa/o3-xhigh', messages: [{ role: 'user', content: 'hi' }] });
+  L = await last('oa'); ok(L.body.model === 'o3' && L.body.reasoning_effort === 'high', 'o3 无 xhigh，-xhigh 夹到 high');
+  r = await chat({ model: 'relay-oa/custom-relay-model', messages: [{ role: 'user', content: 'hi' }], reasoning_effort: 'max' });
+  L = await last('oa'); ok(L.body.model === 'custom-relay-model' && L.body.reasoning_effort === 'high', '未知模型 max 夹到 low/medium/high 的最高档');
+  r = await chat({ model: 'relay-oa/custom-relay-model', messages: [{ role: 'user', content: 'hi' }], reasoning_effort: 'minimal' });
+  L = await last('oa'); ok(L.body.reasoning_effort === 'low', '未知模型 minimal 向上夹到 low');
+  r = await chat({ model: 'relay-oa/gpt-5.1-codex-max', messages: [{ role: 'user', content: 'hi' }], reasoning_effort: 'high' });
+  L = await last('oa'); ok(L.body.model === 'gpt-5.1-codex-max' && L.body.reasoning_effort === 'high', 'gpt-5.1-codex-max 的 max 是模型名，不当成强度后缀');
+  let n0 = (await hits('oa')).length;
+  r = await chat({ model: 'relay-oa/fail400', messages: [{ role: 'user', content: 'hi' }], reasoning_effort: 'high' });
+  ok(r.status === 400 && (await hits('oa')).length === n0 + 1, '与强度无关的 400 不重试', r.text);
   r = await chat({ model: 'relay-fail500', messages: [{ role: 'user', content: 'hi' }] });
   ok(r.status === 500 && r.json?.error?.message === 'boom', '上游 500 状态码和错误体原样返回', r.text);
   r = await chat({ model: 'relay-oa/gpt-mock', messages: [{ role: 'user', content: 'hi' }] });
@@ -281,12 +298,21 @@ async function main() {
   r = await chat({ model: 'relay-an/claude-opus-4-5-high', messages: [{ role: 'user', content: 'hi' }] });
   L = await last('an');
   ok(L.body.thinking?.type === 'enabled' && L.body.thinking.budget_tokens === 16384 && L.body.output_config?.effort === 'high', 'Claude Opus 4.5 同时发 budget_tokens 与 output_config.effort');
+  r = await chat({ model: 'relay-an/claude-opus-4-5-xhigh', messages: [{ role: 'user', content: 'hi' }] });
+  L = await last('an');
+  ok(L.body.thinking?.budget_tokens === 32768 && L.body.output_config?.effort === 'high', 'Opus 4.5 预算可以到 xhigh，effort 只接受 low/medium/high', JSON.stringify({ thinking: L.body.thinking, output_config: L.body.output_config }));
   r = await chat({ model: 'relay-an/claude-sonnet-4-6-high', messages: [{ role: 'user', content: 'hi' }], temperature: 0.2 });
   L = await last('an');
   ok(L.body.model === 'claude-sonnet-4-6' && L.body.thinking?.type === 'adaptive' && L.body.thinking.display === 'summarized' && L.body.thinking.budget_tokens == null && L.body.output_config?.effort === 'high' && L.body.temperature == null, 'Claude 4.6 -high → adaptive + effort，不发 budget_tokens', JSON.stringify({ thinking: L.body.thinking, output_config: L.body.output_config }));
   r = await chat({ model: 'relay-an/claude-sonnet-4-6-xhigh', messages: [{ role: 'user', content: 'hi' }], stream: true });
   L = await last('an');
-  ok(L.body.stream === true && L.body.thinking?.type === 'adaptive' && L.body.output_config?.effort === 'max', 'Claude Sonnet 4.6 无 xhigh，-xhigh 映射为 effort max');
+  ok(L.body.stream === true && L.body.thinking?.type === 'adaptive' && L.body.output_config?.effort === 'high', 'Claude Sonnet 4.6 无 xhigh，-xhigh 向下夹到 high');
+  r = await chat({ model: 'relay-an/claude-sonnet-4-6-max', messages: [{ role: 'user', content: 'hi' }] });
+  L = await last('an');
+  ok(L.body.thinking?.type === 'adaptive' && L.body.output_config?.effort === 'max', 'Claude Sonnet 4.6 支持 max，-max 原样发送');
+  r = await chat({ model: 'relay-an/claude-opus-5-5-max', messages: [{ role: 'user', content: 'hi' }] });
+  L = await last('an');
+  ok(L.body.model === 'claude-opus-5-5' && L.body.thinking?.type === 'adaptive' && L.body.output_config?.effort === 'max', 'Claude Opus 5.5 -max → effort max');
   r = await chat({ model: 'relay-an/claude-opus-4-7-xhigh', messages: [{ role: 'user', content: 'hi' }] });
   L = await last('an');
   ok(L.body.thinking?.type === 'adaptive' && L.body.output_config?.effort === 'xhigh', 'Claude Opus 4.7 -xhigh → effort xhigh');
@@ -298,7 +324,7 @@ async function main() {
   ok(L.body.thinking?.type === 'disabled' && L.body.output_config == null, 'adaptive 且允许关闭的模型，reasoning_effort=off → thinking disabled');
   r = await chat({ model: 'relay-an/claude-opus-5-5', messages: [{ role: 'user', content: 'hi' }], reasoning_effort: 'off' });
   L = await last('an');
-  ok(L.body.thinking == null, 'Opus 5.5 拒绝 disabled，off 时不发 thinking 字段', JSON.stringify(L.body.thinking));
+  ok(L.body.thinking?.type === 'adaptive' && L.body.output_config?.effort === 'low', 'Opus 5.5 不能关闭思考，off 夹到最低档 low', JSON.stringify({ thinking: L.body.thinking, output_config: L.body.output_config }));
   r = await chat({ model: 'relay-claude-mock-1-low', messages: USER, tools: TOOLS });
   const tcThink = r.json?.choices?.[0]?.message?.tool_calls?.[0];
   ok(r.status === 200 && r.json.choices[0].message.reasoning_content === 'ponder' && tcThink?.id === 'toolu_01', 'anthropic 非流式思考 + tool_use', r.text.slice(0, 300));
@@ -352,7 +378,7 @@ async function main() {
   ok(L.body.generationConfig.thinkingConfig.thinkingBudget === 0 && L.body.generationConfig.thinkingConfig.includeThoughts === false, 'gemini 2.5 Flash off → thinkingBudget 0');
   r = await chat({ model: 'relay-gm/gemini-2.5-pro', messages: [{ role: 'user', content: 'hi' }], reasoning_effort: 'off' });
   L = await last('gm');
-  ok(L.body.generationConfig?.thinkingConfig == null, 'gemini 2.5 Pro 不能关闭思考，off 时不发 thinkingConfig', JSON.stringify(L.body.generationConfig));
+  ok(L.body.generationConfig?.thinkingConfig?.thinkingBudget === 512 && L.body.generationConfig.thinkingConfig.includeThoughts === true, 'gemini 2.5 Pro 不能关闭思考，off 夹到最低预算 512', JSON.stringify(L.body.generationConfig));
 
   console.log('\n[azure]');
   r = await chat({ model: 'relay-gpt4o-deploy', messages: [{ role: 'user', content: 'hi' }] });
@@ -385,7 +411,7 @@ async function main() {
   COOKIE = sc.split(';')[0];
   r = await req('GET', '/admin', { headers: { cookie: COOKIE } }); ok(r.status === 200 && r.text.includes('upstream/save'), '登录后 /admin 返回完整管理页');
   const adminPage = r.text;
-  ok(adminPage.includes('思考深度') && adminPage.includes('id="eEffort"') && adminPage.includes('id="eBudget"') && adminPage.includes('id="eModelReason"'), '管理页可设置思考深度、预算和按模型覆盖');
+  ok(adminPage.includes('思考深度') && adminPage.includes('id="eEffort"') && adminPage.includes('value="max"') && adminPage.includes('id="eBudget"') && adminPage.includes('id="eModelReason"') && adminPage.includes('levels:'), '管理页可设置思考深度（含 max）、预算和按模型覆盖');
   async function putUp(name, extra) {
     const u = (await admin('state')).json.upstreams.find(x => x.name === name);
     return admin('upstream/save', { original_name: name, upstream: {
@@ -427,6 +453,19 @@ async function main() {
   r = await chat({ model: 'relay-gm/gemini-2.5-flash-high', messages: [{ role: 'user', content: 'hi' }], stream: true });
   L = await last('gm');
   ok(L.body.generationConfig.thinkingConfig.thinkingBudget === 16384 && L.path.includes('streamGenerateContent'), 'gemini 后缀优先于按模型预算（流式）');
+  r = await putUp('oa', { model_reasoning: { 'gpt-5.6': { levels: ['low', 'medium', 'high'] }, 'effort-reject': { levels: ['low', 'medium', 'high', 'xhigh', 'max'] }, bad: { levels: ['nope'] } } });
+  ok(r.status === 200 && r.json.upstream.model_reasoning['gpt-5.6'].levels.join(',') === 'low,medium,high' && r.json.upstream.model_reasoning['effort-reject'].levels.includes('max') && r.json.upstream.model_reasoning.bad == null, '按模型 levels 覆盖内置能力，非法档位丢掉', JSON.stringify(r.json.upstream.model_reasoning));
+  r = await chat({ model: 'relay-oa/gpt-5.6', messages: [{ role: 'user', content: 'hi' }], reasoning_effort: 'max' });
+  L = await last('oa');
+  ok(L.body.model === 'gpt-5.6' && L.body.reasoning_effort === 'high', '配置声明 gpt-5.6 只有 low/medium/high 时，max 夹到 high');
+  n0 = (await hits('oa')).length;
+  r = await chat({ model: 'relay-oa/effort-reject', messages: [{ role: 'user', content: 'hi' }], reasoning_effort: 'max' });
+  L = await last('oa');
+  const seq = (await hits('oa')).slice(n0);
+  ok(r.status === 200 && seq.length === 2 && seq[0].body.reasoning_effort === 'max' && seq[1].body.reasoning_effort === 'xhigh' && L.body.reasoning_effort === 'xhigh', '上游 400 指出 effort 非法时，降一档重试一次', JSON.stringify(seq.map(x => x.body.reasoning_effort)));
+  const lgClamp = (await admin('logs')).json.logs.find(l => l.model === 'relay-oa/effort-reject');
+  ok(lgClamp && lgClamp.real_model === 'effort-reject (effort=max→xhigh)', '重试后的 real_model 是实际发出的档', lgClamp && lgClamp.real_model);
+  await putUp('oa', {});
   await putUp('an', {}); await putUp('gm', {});
   r = await chat({ model: 'relay-claude-mock-1', messages: [{ role: 'user', content: 'hi' }] });
   L = await last('an');

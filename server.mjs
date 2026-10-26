@@ -17,12 +17,15 @@ const CONFIG_PATH = path.resolve(argVal('--config') || process.env.RELAY_CONFIG 
 const DEBUG = process.env.RELAY_DEBUG === '1';
 const FORMATS = ['openai', 'openai-responses', 'anthropic', 'gemini', 'azure'];
 const FORMAT_ALIASES = { ollama: 'openai', lmstudio: 'openai', 'openai-compatible': 'openai', compatible: 'openai', responses: 'openai-responses', claude: 'anthropic', google: 'gemini', 'azure-openai': 'azure' };
-const EFFORT_RE = /^(.+)-(minimal|low|medium|high|xhigh)$/;
-const EFFORT_LEVELS = ['minimal', 'low', 'medium', 'high', 'xhigh'];
+const EFFORT_ORDER = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+const EFFORT_RE = /^(.+)-(minimal|low|medium|high|xhigh|max)$/;
+const EFFORT_LEVELS = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+const POS_LEVELS = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 // Anthropic manual extended thinking: budget_tokens 最少 1024，且必须小于 max_tokens。
-const ANTH_BUDGET = { minimal: 1024, low: 2048, medium: 8192, high: 16384, xhigh: 32768 };
+const ANTH_BUDGET = { minimal: 1024, low: 2048, medium: 8192, high: 16384, xhigh: 32768, max: 65536 };
 // Gemini 2.5 thinkingBudget。512 同时落在 Pro（128–32768）、Flash（0–24576）和 Flash-Lite（0 或 ≥512）的合法区间。
-const GEM_BUDGET = { minimal: 512, low: 1024, medium: 8192, high: 16384, xhigh: 24576 };
+// max 按 Pro 上限 32768；Flash 发送前会再夹到 24576。
+const GEM_BUDGET = { minimal: 512, low: 1024, medium: 8192, high: 16384, xhigh: 24576, max: 32768 };
 
 const rid = (n = 12) => crypto.randomBytes(n).toString('hex');
 const now = () => new Date().toISOString();
@@ -52,8 +55,19 @@ function normEffortValue(v) {
   if (!s) return '';
   if (['off', 'none', 'disable', 'disabled', 'false'].includes(s)) return 'off';
   if (['xhigh', 'x-high', 'extra-high', 'extrahigh'].includes(s)) return 'xhigh';
+  if (['max', 'maximum'].includes(s)) return 'max';
   if (s === 'min') return 'minimal';
   return EFFORT_LEVELS.includes(s) ? s : '';
+}
+function normLevelList(v) {
+  const raw = Array.isArray(v) ? v : (typeof v === 'string' ? v.split(/[,|]/) : []);
+  const got = new Set();
+  for (const item of raw) {
+    const n = normEffortValue(item);
+    if (n) got.add(n);
+  }
+  if (!got.size) return null;
+  return EFFORT_ORDER.filter(l => got.has(l));
 }
 function normBudgetValue(v) {
   if (v == null || v === '') return null;
@@ -69,17 +83,19 @@ function normModelReasoning(v) {
   for (const [k, raw] of Object.entries(v)) {
     const name = String(k || '').trim();
     if (!name || name.length > 200) continue;
-    let effort = '', budget = null;
+    let effort = '', budget = null, levels = null;
     if (typeof raw === 'number' || (typeof raw === 'string' && /^-?\d+$/.test(raw.trim()))) budget = normBudgetValue(raw);
     else if (typeof raw === 'string') effort = normEffortValue(raw);
     else if (raw && typeof raw === 'object') {
       effort = normEffortValue(raw.effort ?? raw.reasoning_effort);
       budget = normBudgetValue(raw.budget ?? raw.reasoning_budget ?? raw.budget_tokens);
+      levels = normLevelList(raw.levels ?? raw.supports ?? raw.supported);
     }
     const entry = {};
     if (effort) entry.effort = effort;
     if (budget != null) entry.budget = budget;
-    if (effort || budget != null) out[name] = entry;
+    if (levels) entry.levels = levels;
+    if (effort || budget != null || levels) out[name] = entry;
   }
   return out;
 }
@@ -218,10 +234,17 @@ const modelCache = new Map(); // name -> {t, list}
 function knownModels(u) { return u.models.length ? u.models : (modelCache.get(u.name)?.list || []); }
 const supportsEffort = (u) => !!u && ['openai', 'openai-responses', 'azure', 'anthropic', 'gemini'].includes(u.format);
 // 模型名本身就以 -high 等结尾、且在已知列表里时，不把它当成强度后缀。
+// gpt-5.1-codex-max 这类模型名本身以强度词结尾，不能把 -max 当成后缀剥掉。
+function bareModel(name) {
+  return String(name || '').toLowerCase().replace(/^models\//, '').replace(/-\d{4}-\d{2}-\d{2}$/, '');
+}
+function preferLiteralModel(model) {
+  return /^gpt-5\.1-codex-max$/.test(bareModel(model));
+}
 function splitEffort(u, model) {
   if (!supportsEffort(u)) return null;
   const m = EFFORT_RE.exec(model);
-  if (!m || knownModels(u).includes(model)) return null;
+  if (!m || knownModels(u).includes(model) || preferLiteralModel(model)) return null;
   return { model: m[1], effort: m[2] };
 }
 function withEffort(r, requested) {
@@ -253,7 +276,7 @@ function resolveRoute(requested, forceUpstream) {
     return null;
   };
   let r = tryName(name), effort;
-  if (!r) {
+  if (!r && !preferLiteralModel(name)) {
     const m = EFFORT_RE.exec(name);
     if (m) { const r2 = tryName(m[1]); if (r2 && supportsEffort(r2.u)) { r = r2; effort = m[2]; } }
   }
@@ -294,13 +317,121 @@ function effortFromBudget(n) {
   if (v <= ANTH_BUDGET.low) return 'low';
   if (v <= ANTH_BUDGET.medium) return 'medium';
   if (v <= ANTH_BUDGET.high) return 'high';
-  return 'xhigh';
+  if (v <= ANTH_BUDGET.xhigh) return 'xhigh';
+  return 'max';
 }
-function resolvedLevel(reasoning) {
-  if (!reasoning || reasoning.effort === 'off') return '';
-  if (reasoning.effort) return reasoning.effort;
-  if (reasoning.budget != null && reasoning.budget !== 0) return effortFromBudget(reasoning.budget);
-  return '';
+// ---------------------------------------------------------------- thinking capabilities
+// 官方档位（2026-10）：高于请求的档往下夹（max→xhigh→high），低于请求的档往上夹（minimal→low）。
+// off 在不能关闭思考时夹到最低允许档。未知模型名用保守交集，避免把上游不认识的值发出去。
+const OPENAI_CAPS = [
+  { re: /^gpt-5\.1-codex-max$/, levels: ['low', 'medium', 'high', 'xhigh'], canOff: false },
+  { re: /^gpt-5\.1-codex$/, levels: ['low', 'medium', 'high'], canOff: false },
+  { re: /^gpt-5\.2-codex$/, levels: ['low', 'medium', 'high', 'xhigh'], canOff: false },
+  { re: /^gpt-5-codex$/, levels: ['low', 'medium', 'high'], canOff: false },
+  { re: /^gpt-5\.2-pro$/, levels: ['medium', 'high', 'xhigh'], canOff: false },
+  { re: /^gpt-5-pro$/, levels: ['high'], canOff: false },
+  { re: /^gpt-5(?:-mini|-nano)?$/, levels: ['minimal', 'low', 'medium', 'high'], canOff: false },
+  { re: /^gpt-5\.1$/, levels: ['low', 'medium', 'high'], canOff: true },
+  { re: /^gpt-5\.2$/, levels: ['low', 'medium', 'high', 'xhigh'], canOff: true },
+  { re: /^gpt-5\.4$/, levels: ['low', 'medium', 'high', 'xhigh'], canOff: true },
+  { re: /^gpt-5\.5$/, levels: ['low', 'medium', 'high', 'xhigh'], canOff: true },
+  { re: /^gpt-5\.6(?:-sol|-terra|-luna)?$/, levels: ['low', 'medium', 'high', 'xhigh', 'max'], canOff: true },
+  { re: /^gpt-6\.1(?:-sol)?$/, levels: ['low', 'medium', 'high', 'xhigh', 'max'], canOff: false },
+  { re: /^gpt-6-astra$/, levels: ['low', 'medium', 'high', 'xhigh', 'max'], canOff: false },
+  { re: /^gpt-6(?:-sol)?$/, levels: ['low', 'medium', 'high', 'xhigh', 'max'], canOff: true },
+  { re: /^o1(?:-mini|-pro)?$/, levels: ['low', 'medium', 'high'], canOff: false },
+  { re: /^o3(?:-mini|-pro)?$/, levels: ['low', 'medium', 'high'], canOff: false },
+  { re: /^o4-mini$/, levels: ['low', 'medium', 'high'], canOff: false },
+];
+function openaiCaps(model) {
+  const name = bareModel(model);
+  const row = OPENAI_CAPS.find(c => c.re.test(name));
+  if (!row) return { kind: 'openai', levels: ['low', 'medium', 'high'], canOff: true, offWire: 'omit' };
+  return { kind: 'openai', levels: row.levels, canOff: row.canOff, offWire: row.canOff ? 'none' : 'omit' };
+}
+function anthropicCaps(model) {
+  const v = claudeKind(model);
+  const extended = (extra = {}) => ({ kind: 'extended', levels: POS_LEVELS, canOff: true, offWire: 'omit', ...extra });
+  if (!v || v.unknown || v.family === 'legacy' || v.major < 4) return extended();
+  if (v.family === 'opus' && v.major === 4 && v.minor === 5) return extended({ effortLevels: ['low', 'medium', 'high'] });
+  if (!anthAdaptive(v)) return extended();
+  const levels = ['low', 'medium', 'high'];
+  if (anthSupportsXhigh(v)) levels.push('xhigh');
+  if (anthSupportsMax(v)) levels.push('max');
+  return { kind: 'adaptive', levels, canOff: anthCanDisable(v), offWire: 'disabled' };
+}
+function geminiCaps(model) {
+  const m = bareModel(model);
+  const kind = geminiKind(m);
+  if (kind === 'none') return { kind: 'none', levels: [], canOff: true, offWire: 'omit' };
+  if (kind === 'budget') {
+    const pro = /pro/.test(m) && !/flash/.test(m);
+    return { kind: 'gemini-budget', levels: POS_LEVELS, canOff: !pro, offWire: pro ? 'omit' : 'budget0' };
+  }
+  if (/flash-lite[-.].*image|flash-lite-image/.test(m)) return { kind: 'gemini-level', levels: ['minimal', 'high'], canOff: false, offWire: 'omit' };
+  if (/gemini-4|\bargon\b|gemini-3[.-]8/.test(m)) return { kind: 'gemini-level', levels: ['low', 'medium', 'high'], canOff: false, offWire: 'omit' };
+  if (/gemini-3/.test(m)) return { kind: 'gemini-level', levels: ['minimal', 'low', 'medium', 'high'], canOff: false, offWire: 'omit' };
+  return { kind: 'gemini-level', levels: ['low', 'medium', 'high'], canOff: false, offWire: 'omit' };
+}
+function builtinCaps(format, model) {
+  if (format === 'anthropic') return anthropicCaps(model);
+  if (format === 'gemini') return geminiCaps(model);
+  if (format === 'openai' || format === 'azure' || format === 'openai-responses') return openaiCaps(model);
+  return { kind: 'none', levels: [], canOff: true, offWire: 'omit' };
+}
+function resolveCaps(u, model) {
+  const base = builtinCaps(u.format, model);
+  const pm = (u.model_reasoning || {})[model];
+  if (!pm?.levels?.length) return base;
+  const canOff = pm.levels.includes('off');
+  const levels = pm.levels.filter(l => l !== 'off');
+  let offWire = 'omit';
+  if (canOff) {
+    if (base.kind === 'adaptive') offWire = 'disabled';
+    else if (base.kind === 'gemini-budget') offWire = 'budget0';
+    else if (base.kind === 'openai') offWire = 'none';
+    else offWire = base.offWire === 'budget0' || base.offWire === 'disabled' || base.offWire === 'none' ? base.offWire : 'omit';
+  }
+  const next = { ...base, levels, canOff, offWire: canOff ? offWire : base.offWire };
+  if (base.effortLevels) next.effortLevels = levels.filter(l => l !== 'minimal');
+  return next;
+}
+// 请求档不在支持列表里时：先往下找最近的较低档，没有再往上找。off 不能关闭时用最低档。
+function clampLevel(requested, caps, exclude) {
+  const ban = new Set(exclude || []);
+  const levels = (caps.levels || []).filter(l => !ban.has(l));
+  const canOff = !!caps.canOff && !ban.has('off');
+  if (!requested) return { level: '', wire: '', clamped: false };
+  if (requested === 'off') {
+    if (canOff) return { level: 'off', wire: caps.offWire || 'omit', clamped: false };
+    const lowest = EFFORT_ORDER.find(l => l !== 'off' && levels.includes(l));
+    return lowest ? { level: lowest, wire: lowest, clamped: true } : { level: '', wire: '', clamped: true };
+  }
+  if (levels.includes(requested)) return { level: requested, wire: requested, clamped: false };
+  const idx = EFFORT_ORDER.indexOf(requested);
+  if (idx < 0) return { level: '', wire: '', clamped: true };
+  for (let i = idx - 1; i >= 1; i--) if (levels.includes(EFFORT_ORDER[i])) return { level: EFFORT_ORDER[i], wire: EFFORT_ORDER[i], clamped: true };
+  for (let i = idx + 1; i < EFFORT_ORDER.length; i++) if (levels.includes(EFFORT_ORDER[i])) return { level: EFFORT_ORDER[i], wire: EFFORT_ORDER[i], clamped: true };
+  return { level: '', wire: '', clamped: true };
+}
+function decideEffort(u, model, reasoning, exclude) {
+  const caps = resolveCaps(u, model);
+  let requested = reasoning?.effort || '';
+  if (!requested && reasoning && (reasoning.budget > 0 || reasoning.budget === -1)) requested = effortFromBudget(reasoning.budget > 0 ? reasoning.budget : ANTH_BUDGET.medium);
+  if (!requested) return { requested: '', effective: '', wire: '', clamped: false, rejectToken: '', caps, reasoning };
+  const picked = clampLevel(requested, caps, exclude);
+  const rejectToken = picked.level && picked.level !== 'off' ? picked.level : (picked.level === 'off' && picked.wire && picked.wire !== 'omit' ? 'off' : '');
+  return { requested, effective: picked.level, wire: picked.wire, clamped: picked.clamped, rejectToken, caps, reasoning };
+}
+function effortLabel(decision) {
+  if (!decision?.effective) return '';
+  if (decision.requested && decision.requested !== decision.effective) return ` (effort=${decision.requested}→${decision.effective})`;
+  return ` (effort=${decision.effective})`;
+}
+function isEffortRejection(text) {
+  const s = String(text || '').toLowerCase();
+  if (!/reasoning[_\s-]?effort|thinking[_\s-]?(level|budget)|thinkinglevel|thinkingbudget|budget_tokens|output_config|\beffort\b/.test(s)) return false;
+  return /invalid|unsupported|not supported|unknown|unrecognized|must be|does not support|doesn't support|is not supported|not one of|unexpected|only supports|should be one of/.test(s);
 }
 
 // ---------------------------------------------------------------- upstream HTTP
@@ -478,15 +609,6 @@ function anthCanDisable(v) {
   if (v.major >= 5 && v.minor >= 5 && (v.family === 'opus' || v.family === 'sonnet')) return false;
   return true;
 }
-function anthEffortName(v, level) {
-  if (level === 'minimal') return 'low';
-  if (level === 'xhigh') {
-    if (anthSupportsXhigh(v)) return 'xhigh';
-    if (anthSupportsMax(v)) return 'max';
-    return 'high';
-  }
-  return level;
-}
 function anthToolBlock(tc) {
   return { type: 'tool_use', id: tc.id, name: tc.function?.name, input: safeJson(tc.function?.arguments) };
 }
@@ -519,23 +641,22 @@ function replayThinking(toolCalls) {
   for (const tc of toolCalls) if (!used.has(tc.id)) out.push(anthToolBlock(tc));
   return out;
 }
-function applyAnthropicThinking(body, r, model, reasoning, hasTools) {
-  const level = resolvedLevel(reasoning);
-  const kind = claudeKind(model);
-  if (!level && reasoning?.effort !== 'off') return '';
-  if (reasoning?.effort === 'off' || !level) {
-    if (anthCanDisable(kind)) body.thinking = { type: 'disabled' };
+function applyAnthropicThinking(body, r, decision, hasTools) {
+  const level = decision?.effective || '';
+  const caps = decision?.caps || {};
+  if (!level) return '';
+  if (level === 'off') {
+    if (decision.wire === 'disabled') body.thinking = { type: 'disabled' };
     return '';
   }
-  const adaptive = anthAdaptive(kind);
-  if (adaptive) {
+  if (caps.kind === 'adaptive') {
     body.thinking = { type: 'adaptive', display: 'summarized' };
-    body.output_config = { ...(body.output_config || {}), effort: anthEffortName(kind, level) };
+    body.output_config = { ...(body.output_config || {}), effort: level };
     delete body.temperature;
     delete body.top_p;
     return '';
   }
-  const budget = Math.max(1024, reasoning?.budget > 0 ? reasoning.budget : (ANTH_BUDGET[level] || ANTH_BUDGET.medium));
+  const budget = Math.max(1024, decision.reasoning?.budget > 0 ? decision.reasoning.budget : (ANTH_BUDGET[level] || ANTH_BUDGET.medium));
   body.thinking = { type: 'enabled', budget_tokens: budget };
   if (!(body.max_tokens > budget)) body.max_tokens = budget + 1024;
   delete body.temperature;
@@ -544,11 +665,14 @@ function applyAnthropicThinking(body, r, model, reasoning, hasTools) {
     if (p >= 0.95 && p <= 1) body.top_p = p;
     else delete body.top_p;
   } else delete body.top_p;
-  if (kind.family === 'opus' && kind.major === 4 && kind.minor === 5) body.output_config = { ...(body.output_config || {}), effort: anthEffortName(kind, level) };
+  if (caps.effortLevels?.length) {
+    const e = clampLevel(decision.requested || level, { levels: caps.effortLevels, canOff: false });
+    if (e.level && e.level !== 'off') body.output_config = { ...(body.output_config || {}), effort: e.level };
+  }
   return hasTools ? 'interleaved-thinking-2025-05-14' : '';
 }
 function anthUsage(u = {}) { const p = (u.input_tokens || 0) + (u.cache_creation_input_tokens || 0) + (u.cache_read_input_tokens || 0); return mkUsage(p, u.output_tokens, u.cache_read_input_tokens ? { prompt_tokens_details: { cached_tokens: u.cache_read_input_tokens } } : undefined); }
-function toAnthropic(r, model, reasoning) {
+function toAnthropic(r, model, decision) {
   const P = prep(r), system = [], out = [];
   const push = (role, blocks) => {
     if (!blocks.length) return;
@@ -593,7 +717,7 @@ function toAnthropic(r, model, reasoning) {
     if (r.parallel_tool_calls === false) body.tool_choice = { ...(body.tool_choice || { type: 'auto' }), disable_parallel_tool_use: true };
   }
   if (r.stream) body.stream = true;
-  const beta = applyAnthropicThinking(body, r, model, reasoning, !!(P.tools.length && P.toolChoice !== 'none'));
+  const beta = applyAnthropicThinking(body, r, decision, !!(P.tools.length && P.toolChoice !== 'none'));
   return { body, beta };
 }
 function fromAnthropic(j, ctx) {
@@ -658,7 +782,7 @@ function anthStreamer(ctx, emit) {
 }
 
 // ---------------------------------------------------------------- openai responses
-function toResponses(r, model, reasoning) {
+function toResponses(r, model, decision) {
   const P = prep(r), input = [];
   for (const m of P.msgs) {
     if (m.role === 'system' || m.role === 'developer') { const t = textOf(m.content); if (t) input.push({ role: m.role, content: t }); continue; }
@@ -681,8 +805,8 @@ function toResponses(r, model, reasoning) {
   if (typeof tc === 'string') body.tool_choice = tc;
   else if (tc?.function?.name) body.tool_choice = { type: 'function', name: tc.function.name };
   if (r.parallel_tool_calls != null) body.parallel_tool_calls = r.parallel_tool_calls;
-  const eff = resolvedLevel(reasoning);
-  if (eff) body.reasoning = { effort: eff };
+  if (decision?.wire === 'none') body.reasoning = { effort: 'none' };
+  else if (decision?.effective && decision.effective !== 'off') body.reasoning = { effort: decision.effective };
   return body;
 }
 function respFinish(resp, hadTools) {
@@ -741,34 +865,37 @@ function geminiKind(model) {
   if (/gemini-1(\.|-|$)/.test(m)) return 'none';
   return 'level';
 }
-function geminiLevelName(model, level) {
+function gemBudgetNumber(model, level, explicit) {
   const m = String(model || '').toLowerCase();
-  const noMinimal = /gemini-4|argon|gemini-3\.8/.test(m);
-  if (level === 'xhigh') return 'high';
-  if ((level === 'minimal' || level === 'off') && noMinimal) return 'low';
-  if (level === 'off') return 'minimal';
-  return level;
+  const pro = /pro/.test(m) && !/flash/.test(m);
+  const lite = /flash-lite|flashlite/.test(m);
+  const cap = pro ? 32768 : 24576;
+  let n = explicit != null ? explicit : GEM_BUDGET[level];
+  if (n == null) return null;
+  if (n === -1) return -1;
+  if (n > cap) n = cap;
+  if (n > 0 && pro && n < 128) n = 128;
+  if (n > 0 && lite && n < 512) n = 512;
+  return n;
 }
-function geminiThinking(model, reasoning) {
-  const kind = geminiKind(model);
-  if (kind === 'none' || !reasoning) return null;
-  const level = resolvedLevel(reasoning);
-  const off = reasoning.effort === 'off';
-  if (!level && !off) return null;
-  if (kind === 'budget') {
-    if (off) {
-      if (/pro/.test(String(model).toLowerCase()) && !/flash/.test(String(model).toLowerCase())) return null;
-      return { thinkingBudget: 0, includeThoughts: false };
-    }
-    const budget = reasoning.budget === -1 || reasoning.budget > 0 ? reasoning.budget : GEM_BUDGET[level];
+function geminiThinking(model, decision) {
+  const caps = decision?.caps;
+  if (!caps || (caps.kind !== 'gemini-budget' && caps.kind !== 'gemini-level')) return null;
+  const level = decision.effective;
+  if (!level) return null;
+  if (caps.kind === 'gemini-budget') {
+    if (level === 'off') return decision.wire === 'budget0' ? { thinkingBudget: 0, includeThoughts: false } : null;
+    const explicit = decision.reasoning?.budget;
+    const useExplicit = explicit === -1 || explicit > 0;
+    const budget = gemBudgetNumber(model, level, useExplicit ? explicit : undefined);
     if (budget == null) return null;
     if (budget === 0) return { thinkingBudget: 0, includeThoughts: false };
     return { thinkingBudget: budget, includeThoughts: true };
   }
-  const name = geminiLevelName(model, off ? 'off' : level);
-  return { thinkingLevel: name, includeThoughts: true };
+  if (level === 'off') return null;
+  return { thinkingLevel: level, includeThoughts: true };
 }
-function toGemini(r, model, reasoning) {
+function toGemini(r, model, decision) {
   const P = prep(r), sys = [], contents = [], idName = {};
   const push = (role, parts) => {
     if (!parts.length) return;
@@ -806,7 +933,7 @@ function toGemini(r, model, reasoning) {
   if (r.temperature != null) gc.temperature = r.temperature;
   if (r.top_p != null) gc.topP = r.top_p;
   if (P.stop.length) gc.stopSequences = P.stop.slice(0, 5);
-  const think = geminiThinking(model, reasoning);
+  const think = geminiThinking(model, decision);
   if (think) gc.thinkingConfig = think;
   if (Object.keys(gc).length) body.generationConfig = gc;
   if (P.tools.length) {
@@ -866,38 +993,37 @@ function addBeta(headers, beta) {
   if (key && key !== 'anthropic-beta') delete headers[key];
   headers['anthropic-beta'] = parts.join(',');
 }
-function applyPassEffort(body, reasoning) {
-  if (!reasoning) return;
-  if (reasoning.effort === 'off') { delete body.reasoning_effort; return; }
-  const level = resolvedLevel(reasoning);
-  if (level) body.reasoning_effort = level;
-  else if (body.reasoning_effort != null && !normEffortValue(body.reasoning_effort)) delete body.reasoning_effort;
+function applyPassEffort(body, decision) {
+  if (decision?.wire === 'none') { body.reasoning_effort = 'none'; return; }
+  if (decision?.effective && decision.effective !== 'off') { body.reasoning_effort = decision.effective; return; }
+  delete body.reasoning_effort;
 }
-function buildRequest(u, r, model, effort, pathSuffix = '/chat/completions') {
+function buildRequest(u, r, model, effort, pathSuffix = '/chat/completions', exclude) {
   const base = upBase(u);
   const headers = { 'content-type': 'application/json', accept: r.stream ? 'text/event-stream' : 'application/json', ...authHeaders(u) };
   const reasoning = resolveReasoning(u, model, effort, r);
+  const decision = decideEffort(u, model, reasoning, exclude);
   switch (u.format) {
     case 'openai': case 'azure': {
       const body = { ...r, model };
-      applyPassEffort(body, reasoning);
+      applyPassEffort(body, decision);
       let url;
       if (u.format === 'azure' && !azureIsV1(u)) url = `${base}/openai/deployments/${encodeURIComponent(model)}${pathSuffix}?api-version=${encodeURIComponent(u.api_version || '2024-10-21')}`;
       else url = base + pathSuffix;
-      return { kind: 'pass', url, headers, body };
+      return { kind: 'pass', url, headers, body, decision };
     }
     case 'openai-responses':
-      if (pathSuffix !== '/chat/completions') return { kind: 'pass', url: base + pathSuffix, headers, body: { ...r, model } };
-      return { kind: 'responses', url: base + '/responses', headers, body: toResponses(r, model, reasoning) };
+      if (pathSuffix !== '/chat/completions') return { kind: 'pass', url: base + pathSuffix, headers, body: { ...r, model }, decision: { requested: '', effective: '', wire: '', clamped: false, rejectToken: '', caps: { kind: 'none' }, reasoning } };
+      return { kind: 'responses', url: base + '/responses', headers, body: toResponses(r, model, decision), decision };
     case 'anthropic': {
-      const built = toAnthropic(r, model, reasoning);
+      const built = toAnthropic(r, model, decision);
       addBeta(headers, built.beta);
-      return { kind: 'anthropic', url: base + '/messages', headers, body: built.body };
+      return { kind: 'anthropic', url: base + '/messages', headers, body: built.body, decision };
     }
     case 'gemini': {
       const m = model.replace(/^models\//, '');
       const q = [r.stream ? 'alt=sse' : '', u.key_in_query && upstreamKey(u) ? 'key=' + encodeURIComponent(upstreamKey(u)) : ''].filter(Boolean).join('&');
-      return { kind: 'gemini', url: `${base}/models/${encodeURIComponent(m)}:${r.stream ? 'streamGenerateContent' : 'generateContent'}${q ? '?' + q : ''}`, headers, body: toGemini(r, m, reasoning) };
+      return { kind: 'gemini', url: `${base}/models/${encodeURIComponent(m)}:${r.stream ? 'streamGenerateContent' : 'generateContent'}${q ? '?' + q : ''}`, headers, body: toGemini(r, m, decision), decision };
     }
     default: throw new Error('不支持的格式: ' + u.format);
   }
@@ -954,7 +1080,7 @@ async function handleProxy(req, res, rawBody, pathSuffix) {
   const route = resolveRoute(r.model, forced);
   if (!route) return sendErr(res, 503, forced ? `上游 ${forced} 不存在` : '没有已启用的上游，请先在管理页添加', 'no_upstream');
   const t0 = Date.now();
-  const entry = { time: now(), path: pathSuffix, model: String(r.model || ''), upstream: route.u.name, real_model: route.model + (route.effort ? ` (effort=${route.effort})` : ''), stream: !!r.stream, status: 0, ms: 0, prompt_tokens: null, completion_tokens: null, error: '', source: req.headers['x-relay-source'] === 'test' ? 'test' : 'client' };
+  const entry = { time: now(), path: pathSuffix, model: String(r.model || ''), upstream: route.u.name, real_model: route.model, stream: !!r.stream, status: 0, ms: 0, prompt_tokens: null, completion_tokens: null, error: '', source: req.headers['x-relay-source'] === 'test' ? 'test' : 'client' };
   let logged = false;
   const done = (status, extra = {}) => {
     if (logged) return; logged = true;
@@ -976,6 +1102,7 @@ async function handleProxy(req, res, rawBody, pathSuffix) {
     try { spec = buildRequest(u, r, route.model, route.effort, pathSuffix); }
     catch (e) { last = { status: 400, message: e.message }; continue; }
     if (spec.kind !== 'pass' && pathSuffix !== '/chat/completions') { last = { status: 404, message: `${u.format} 上游只支持 /v1/chat/completions` }; continue; }
+    entry.real_model = route.model + effortLabel(spec.decision);
     if (DEBUG) log('-> upstream', u.name, spec.url.replace(/key=[^&]+/, 'key=***'), JSON.stringify(spec.body).slice(0, 2000));
     let up;
     try { up = await doRequest(spec.url, { headers: spec.headers, body: JSON.stringify(spec.body), timeout: u.timeout_ms || cfg.timeout_ms, signal: ac.signal }); }
@@ -984,6 +1111,33 @@ async function handleProxy(req, res, rawBody, pathSuffix) {
       last = { status: e.code === 'ETIMEOUT' ? 504 : 502, message: `上游 ${u.name} 连接失败: ${e.message}` };
       if (i < chain.length - 1) log(`fallback: ${u.name} -> ${chain[i + 1].name} (${last.message.slice(0, 120)})`);
       continue;
+    }
+    if (up.statusCode === 400) {
+      const text = await readAll(up).catch(() => '');
+      const token = spec.decision?.rejectToken;
+      let retried = false;
+      if (token && isEffortRejection(text)) {
+        let spec2 = null;
+        try { spec2 = buildRequest(u, r, route.model, route.effort, pathSuffix, [token]); }
+        catch { spec2 = null; }
+        if (spec2 && JSON.stringify(spec2.body) !== JSON.stringify(spec.body)) {
+          entry.real_model = route.model + effortLabel(spec2.decision);
+          try {
+            up = await doRequest(spec2.url, { headers: spec2.headers, body: JSON.stringify(spec2.body), timeout: u.timeout_ms || cfg.timeout_ms, signal: ac.signal });
+            spec = spec2;
+            retried = true;
+          } catch (e) {
+            if (ac.signal.aborted) return done(499, { error: 'client closed' });
+            last = { status: e.code === 'ETIMEOUT' ? 504 : 502, message: `上游 ${u.name} 连接失败: ${e.message}` };
+            if (i < chain.length - 1) log(`fallback: ${u.name} -> ${chain[i + 1].name} (${last.message.slice(0, 120)})`);
+            continue;
+          }
+        }
+      }
+      if (!retried || up.statusCode === 400) {
+        const errText = retried ? await readAll(up).catch(() => '') : text;
+        return deliver(res, r, u, spec, up, entry, done, errText);
+      }
     }
     const retriable = up.statusCode >= 500 || up.statusCode === 429;
     if (retriable && i < chain.length - 1) {
@@ -998,11 +1152,11 @@ async function handleProxy(req, res, rawBody, pathSuffix) {
   sendErr(res, last?.status || 502, last?.message || 'no upstream', 'upstream_error');
 }
 
-async function deliver(res, r, u, spec, up, entry, done) {
+async function deliver(res, r, u, spec, up, entry, done, preloaded) {
   const status = up.statusCode;
   const ctype = String(up.headers['content-type'] || '');
   if (status >= 400) {
-    const text = await readAll(up).catch(() => '');
+    const text = preloaded !== undefined ? preloaded : await readAll(up).catch(() => '');
     const msg = String(errMessage(text));
     done(status, { error: msg.slice(0, 500) });
     if (spec.kind === 'pass') { res.writeHead(status, { 'content-type': ctype || 'application/json', ...CORS }); return res.end(text); }
