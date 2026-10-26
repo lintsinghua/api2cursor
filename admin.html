@@ -4,174 +4,202 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>api2cursor</title>
-<meta name="theme-color" content="#050506">
+<meta name="theme-color" content="#111113">
 <style>
 :root{
-  --bg:#050506; --bg-2:#0b0c0e; --bg-3:#121316;
-  --line:rgba(255,255,255,.08); --line-2:rgba(255,255,255,.14);
-  --fg:#f4f5f7; --fg-2:rgba(244,245,247,.64); --fg-3:rgba(244,245,247,.4); --fg-4:rgba(244,245,247,.24);
-  --fg-hint:rgba(244,245,247,.56);
-  --accent:#37bdf8; --accent-deep:#1f6f9f; --headline:#f7f8fa;
-  --btn-light:rgba(255,255,255,.88); --btn-ink:#0a0a0b;
-  --glass:rgba(255,255,255,.06); --glass-strong:rgba(255,255,255,.1);
-  --panel:#0b0c0e; --panel-raised:#121316;
-  --danger:#f87171; --ok:#4ade80; --warn:#fbbf24;
-  --radius-panel:28px; --radius-card:22px; --radius-pill:999px; --radius-field:12px;
-  --shadow-stage:0 0 0 6px rgba(255,255,255,.02),0 60px 120px -60px rgba(0,0,0,.9);
-  --shadow-btn-hover:0 0 0 1px rgba(255,255,255,.2),0 10px 30px -10px rgba(55,189,248,.55);
-  --glow-accent:0 0 8px rgba(55,189,248,.7);
-  --sans:"Montserrat",-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans CJK SC",system-ui,sans-serif;
-  --mono:"Roboto Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
-  --wide:1265px; --nav-h:60px;
-  --ease:cubic-bezier(.22,1,.36,1);
+  /* Radix Colors dark: slate / blue / red / green / amber */
+  --slate1:#111113;--slate2:#18191b;--slate3:#212225;--slate4:#272a2d;--slate5:#2e3135;--slate6:#363a3f;--slate7:#43484e;--slate8:#5a6169;--slate11:#b0b4ba;--slate12:#edeef0;
+  --blue3:#0d2847;--blue4:#003362;--blue7:#205d9e;--blue8:#2870bd;--blue9:#0090ff;--blue10:#3b9eff;--blue11:#70b8ff;
+  --red3:#3b1219;--red7:#8c333a;--red9:#e5484d;--red11:#ff9592;
+  --green3:#132d21;--green9:#30a46c;--green11:#3dd68c;
+  --amber3:#302008;--amber7:#8f6424;--amber9:#ffc53d;--amber11:#ffca16;
+  --hair:.5px solid var(--slate6);
+  --r-lg:12px;--r-md:8px;--r-sm:6px;
+  --t:250ms ease-out;
+  --sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
 }
 *{box-sizing:border-box}
-html{scroll-behavior:smooth;scroll-padding-top:76px}
-body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased;min-height:100vh}
-body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:-1;
-  background:radial-gradient(120% 55% at 50% -12%,rgba(47,120,168,.20),transparent 62%),
-             radial-gradient(60% 40% at 50% 118%,rgba(55,189,248,.10),transparent 70%),var(--bg)}
+html{color-scheme:dark}
+body{margin:0;background:var(--slate1);color:var(--slate12);font:400 14px/20px var(--sans);-webkit-font-smoothing:antialiased}
 [hidden]{display:none!important}
-header{position:sticky;top:0;z-index:50;height:var(--nav-h);display:flex;align-items:center;gap:18px;
-  padding:0 clamp(16px,4vw,48px);background:rgba(5,5,6,.72);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-bottom:1px solid var(--line)}
-.brand{display:flex;align-items:center;gap:10px;font-size:16px;font-weight:600;letter-spacing:.06em}
-.brand i{width:10px;height:10px;border-radius:50%;background:var(--accent);box-shadow:var(--glow-accent)}
-.brand small{font-family:var(--mono);font-size:11px;letter-spacing:.12em;color:var(--fg-hint);font-weight:400}
-nav{display:flex;gap:6px;margin-left:auto}
-nav a{color:var(--fg-2);text-decoration:none;padding:8px 14px;border-radius:var(--radius-pill)}
-nav a:hover{background:var(--glass);color:var(--fg)}
-main{max-width:var(--wide);margin:0 auto;padding:8px 24px 80px}
-.steps{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;list-style:none;margin:22px 0 18px;padding:0}
-.steps button{width:100%;height:auto;min-height:72px;padding:12px 14px;border-radius:var(--radius-card);background:var(--panel);flex-direction:column;align-items:flex-start;gap:8px;white-space:normal;text-align:left}
-.steps .now button{border-color:rgba(55,189,248,.55);box-shadow:0 0 0 3px rgba(55,189,248,.18)}
-.steps .k{font-family:var(--mono);font-size:11px;letter-spacing:.12em;color:var(--accent)}
-.banner{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 16px;padding:12px 16px;border-radius:var(--radius-card);border:1px solid rgba(251,191,36,.45);background:rgba(251,191,36,.08)}
-.banner.bad{border-color:rgba(248,113,113,.5);background:rgba(248,113,113,.1)}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius-panel);box-shadow:var(--shadow-stage);padding:28px 32px;margin-bottom:22px}
-.card h2{font-size:22px;font-weight:500;letter-spacing:-.02em;margin:0 0 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-details.card > summary{font-size:22px;font-weight:500;letter-spacing:-.02em;color:var(--headline)}
-.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:10px 0}
-label.f{display:block;font-size:12px;color:var(--fg-hint);margin:14px 0 6px}
-input[type=text],input[type=password],input[type=number],select,textarea{width:100%;padding:10px 14px;border:1px solid var(--line-2);border-radius:var(--radius-field);font:inherit;color:var(--fg);background:rgba(255,255,255,.04);transition:border-color .3s,box-shadow .3s}
-input::placeholder,textarea::placeholder{color:var(--fg-4)}
-select option{background:var(--bg-3);color:var(--fg)}
-input:focus,select:focus,textarea:focus,button:focus-visible,a:focus-visible,summary:focus-visible{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(55,189,248,.25)}
-input.bad,select.bad,textarea.bad{border-color:var(--danger)}
-input[readonly]{color:var(--fg-2)}
-textarea{font-family:var(--mono);font-size:12.5px;min-height:72px;resize:vertical}
-input[type=checkbox]{accent-color:var(--accent);width:15px;height:15px;vertical-align:-2px;margin-right:6px}
-button{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:38px;padding:0 18px;border-radius:var(--radius-pill);border:1px solid var(--line-2);
-  background:var(--glass);color:var(--fg);cursor:pointer;font:inherit;font-weight:500;letter-spacing:-.01em;white-space:nowrap;
-  transition:transform .3s var(--ease),background .3s,box-shadow .3s,border-color .3s}
-button:hover{background:var(--glass-strong)}
-button.p{background:var(--btn-light);color:var(--btn-ink);border-color:transparent}
-button.p:hover{background:#fff;transform:translateY(-1px);box-shadow:var(--shadow-btn-hover)}
-button.d{color:var(--danger)}
-button.small{height:30px;padding:0 10px;font-size:12px}
-button:disabled{opacity:.45;cursor:default;transform:none;box-shadow:none}
-button.nav-cta{height:38px;padding:0 18px;border-radius:var(--radius-pill);background:rgba(255,255,255,.12);border:0;color:var(--fg)}
-button.nav-cta:hover{background:rgba(255,255,255,.2)}
-.tbl{overflow-x:auto}
+h1,h2,h3,p{margin:0}
+h2{font-size:18px;line-height:24px;font-weight:600}
+h3{font-size:14px;font-weight:600}
+.s{font-size:12px;line-height:16px}
+.dim{color:var(--slate11)}
+.mono{font-family:var(--mono);font-size:12px}
+.okc{color:var(--green11)}.err{color:var(--red11)}.warnc{color:var(--amber11)}
+header{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:16px;height:56px;padding:0 24px;background:var(--slate1);border-bottom:var(--hair)}
+.brand{display:flex;align-items:center;gap:8px;font-weight:600}
+.brand svg{display:block}
+header nav{display:flex;gap:4px;margin-left:16px}
+header nav a{color:var(--slate11);text-decoration:none;padding:6px 10px;border-radius:var(--r-sm)}
+header nav a:hover{color:var(--slate12);background:var(--slate3)}
+header .end{margin-left:auto;display:flex;align-items:center;gap:12px}
+main{max-width:1040px;margin:0 auto;padding:24px 24px 64px;display:grid;gap:32px}
+section{scroll-margin-top:72px}
+section{display:grid;gap:12px}
+.head{display:flex;align-items:center;gap:12px;min-height:32px}
+.head .end{margin-left:auto;display:flex;gap:8px;align-items:center}
+.panel{background:var(--slate2);border:var(--hair);border-radius:var(--r-lg)}
+.pad{padding:16px}
+button{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:32px;padding:0 12px;border-radius:var(--r-sm);border:var(--hair);border-color:var(--slate7);
+  background:var(--slate3);color:var(--slate12);font:500 14px/1 var(--sans);cursor:pointer;white-space:nowrap;transition:background-color var(--t),border-color var(--t)}
+button:hover{background:var(--slate4);border-color:var(--slate8)}
+button:active{background:var(--slate5)}
+button.p{background:var(--blue9);border-color:var(--blue9);color:#fff}
+button.p:hover{background:var(--blue10);border-color:var(--blue10)}
+button.g{background:transparent;border-color:transparent;color:var(--slate11)}
+button.g:hover{background:var(--slate4);color:var(--slate12)}
+button.d{color:var(--red11)}
+button.d:hover{background:var(--red3);border-color:var(--red7)}
+button.sm{height:28px;padding:0 10px;font-size:12px}
+button:disabled{opacity:.5;cursor:default}
+input,select,textarea{width:100%;height:32px;padding:0 10px;border:var(--hair);border-color:var(--slate7);border-radius:var(--r-sm);background:var(--slate1);color:var(--slate12);font:400 14px/20px var(--sans);transition:border-color var(--t)}
+textarea{height:auto;min-height:80px;padding:6px 10px;font-family:var(--mono);font-size:12px;line-height:18px;resize:vertical}
+input:hover,select:hover,textarea:hover{border-color:var(--slate8)}
+input:focus,select:focus,textarea:focus,button:focus-visible,a:focus-visible,[tabindex]:focus-visible,summary:focus-visible{outline:2px solid var(--blue8);outline-offset:1px;border-color:var(--blue8)}
+input::placeholder,textarea::placeholder{color:var(--slate8)}
+input[readonly]{color:var(--slate11)}
+input[type=checkbox]{width:16px;height:16px;margin:0;accent-color:var(--blue9)}
+.bad{border-color:var(--red9)!important}
+label.f{display:grid;gap:6px;color:var(--slate11);font-size:12px;line-height:16px}
+label.c{display:inline-flex;align-items:center;gap:8px;color:var(--slate12);cursor:pointer}
+.fe{color:var(--red11);font-size:12px;line-height:16px}
+.fe:empty{display:none}
+/* steps */
+.steps{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0;padding:12px 16px;list-style:none}
+.steps .st{display:inline-flex;align-items:center;gap:8px;height:28px;padding:0 10px 0 8px;border-radius:var(--r-sm);border:var(--hair);border-color:var(--slate6);background:var(--slate2);color:var(--slate11);font-size:12px;line-height:16px;cursor:pointer}
+.steps .st:hover{background:var(--slate3);color:var(--slate12)}
+.steps .st b{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:var(--slate5);color:var(--slate12);font:500 12px/1 var(--sans)}
+.steps .st.ok{color:var(--slate12)}
+.steps .st.ok b{background:var(--green3);color:var(--green11)}
+.steps .st.now{border-color:var(--blue7);color:var(--slate12)}
+.steps .st.now b{background:var(--blue4);color:var(--blue11)}
+/* banners */
+.banner{display:flex;align-items:center;gap:12px;padding:10px 12px;border:var(--hair);border-radius:var(--r-md);background:var(--amber3);border-color:var(--amber7);color:var(--slate12)}
+.banner.bad{background:var(--red3);border-color:var(--red7)}
+.banner .end{margin-left:auto;display:flex;gap:8px}
+/* table */
+.tbl{overflow-x:auto;border:var(--hair);border-radius:var(--r-md)}
 table{width:100%;border-collapse:collapse}
-th,td{text-align:left;padding:10px 8px;border-bottom:1px solid var(--line);vertical-align:middle}
-th{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--fg-hint);font-weight:500}
-tbody tr:hover{background:rgba(255,255,255,.02)}
-td button{height:30px;padding:0 12px;font-size:12px;margin:2px 0}
-td{white-space:nowrap}td.wrap{white-space:normal;word-break:break-all;min-width:140px}
-.ord button{width:30px;padding:0}
-code,.mono{font-family:var(--mono);font-size:12.5px}
-.kv{display:grid;grid-template-columns:180px 1fr auto;gap:10px 12px;align-items:center}
-.kv .lab{color:var(--fg-2)}
-.kv .v{background:rgba(255,255,255,.04);border:1px solid var(--line);padding:10px 14px;border-radius:var(--radius-field);word-break:break-all;color:var(--headline);min-height:40px}
-.tag{white-space:nowrap;display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 10px;border-radius:var(--radius-pill);font-size:12px;background:var(--glass);color:var(--fg-2);border:1px solid var(--line)}
-.tag::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--fg-4)}
-.tag.ok{color:var(--fg)}.tag.ok::before{background:var(--accent);box-shadow:var(--glow-accent)}
-.tag.err{color:var(--danger)}.tag.err::before{background:var(--danger)}
-.tag.warn{color:var(--warn)}.tag.warn::before{background:var(--warn)}
-.tag.off{color:var(--fg-hint)}
+th,td{text-align:left;padding:10px 12px;border-bottom:var(--hair);border-color:var(--slate5);vertical-align:middle;white-space:nowrap}
+th{font-weight:500;color:var(--slate11);font-size:12px;line-height:16px;background:var(--slate2)}
+tbody tr:last-child td{border-bottom:0}
+tbody tr:hover{background:var(--slate3)}
+td.wrap{white-space:normal;word-break:break-all;min-width:160px}
+td.acts{text-align:right}
+td.acts button{margin-left:4px}
+.ord{display:inline-flex;gap:2px}
+.ord button{width:24px;padding:0;height:24px;background:transparent;border-color:transparent;color:var(--slate11)}
+.ord button:hover{background:var(--slate4);color:var(--slate12)}
+/* tag */
+.tag{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 8px;border-radius:var(--r-sm);border:var(--hair);border-color:var(--slate6);background:var(--slate3);color:var(--slate11);font-size:12px;line-height:16px}
+.tag::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--slate8)}
+.tag.ok{color:var(--slate12)}.tag.ok::before{background:var(--green9)}
+.tag.err{color:var(--red11)}.tag.err::before{background:var(--red9)}
+.tag.warn{color:var(--amber11)}.tag.warn::before{background:var(--amber9)}
 .tag.plain::before{display:none}
-.mut{color:var(--fg-hint);font-size:12px}.err{color:var(--danger)}.okc{color:var(--accent)}
-.grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 18px}
-.models{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
-.models span{background:var(--glass);border:1px solid var(--line);border-radius:var(--radius-pill);padding:5px 12px;cursor:pointer;font-family:var(--mono);font-size:12.5px}
-.models span:hover,.models span.on{background:rgba(55,189,248,.14);border-color:rgba(55,189,248,.55)}
-.models span:focus-visible{outline:none;box-shadow:0 0 0 3px rgba(55,189,248,.25)}
-#editor{background:var(--panel-raised);border-color:var(--line-2)}
-#toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--btn-light);color:var(--btn-ink);padding:10px 20px;border-radius:var(--radius-pill);z-index:90;font-weight:500;box-shadow:var(--shadow-btn-hover)}
-.field-err{color:var(--danger);font-size:12px;margin-top:4px;min-height:1em}
-.empty{color:var(--fg-hint);padding:8px 0}
-pre{white-space:pre-wrap;word-break:break-all;background:rgba(255,255,255,.04);border:1px solid var(--line);padding:12px 14px;border-radius:var(--radius-field);max-height:160px;overflow:auto;font-family:var(--mono);font-size:12px;margin:8px 0 0}
-details{margin-top:12px}
-summary{cursor:pointer;color:var(--fg-2);padding:6px 0}
-summary:hover{color:var(--fg)}
-.one{margin:6px 0 0;color:var(--fg-2)}
-.check{display:flex;align-items:center;gap:8px;margin-top:8px;color:var(--fg-2);font-size:13px}
-@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}button,button.p:hover{transition:none;transform:none}}
-@media (max-width:900px){
-  header{background:rgba(5,5,6,.94);backdrop-filter:none;-webkit-backdrop-filter:none}
-  nav.links{display:none}
-  .steps{grid-template-columns:1fr 1fr}
-  .grid2,.kv{grid-template-columns:1fr}
-  .card{padding:20px 16px;border-radius:22px}
-  .kv .v{grid-column:1}
+/* code rows */
+.kv{display:grid;grid-template-columns:140px 1fr auto;align-items:center;gap:8px 12px}
+.kv .v{display:flex;align-items:center;height:32px;padding:0 10px;border:var(--hair);border-radius:var(--r-sm);background:var(--slate1);color:var(--slate12);font-family:var(--mono);font-size:12px;overflow:hidden;text-overflow:ellipsis}
+.models{display:flex;flex-wrap:wrap;gap:6px}
+.models span{display:inline-flex;align-items:center;height:24px;padding:0 8px;border:var(--hair);border-radius:var(--r-sm);background:var(--slate3);color:var(--slate12);font-family:var(--mono);font-size:12px;cursor:pointer;transition:background-color var(--t)}
+.models span:hover{background:var(--slate4)}
+.models span.on{background:var(--blue4);border-color:var(--blue7);color:var(--blue11)}
+/* editor */
+#editor{border:var(--hair);border-color:var(--slate7);border-radius:var(--r-lg);background:var(--slate2);padding:20px;display:grid;gap:16px}
+.frm{display:grid;gap:16px}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
+.row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.row .end{margin-left:auto}
+.divider{height:.5px;background:var(--slate5)}
+details{border-top:var(--hair);border-color:var(--slate5);padding-top:12px}
+summary{cursor:pointer;color:var(--slate11);font-size:12px;line-height:16px;list-style:none;display:inline-flex;align-items:center;gap:6px}
+summary::-webkit-details-marker{display:none}
+summary::before{content:"";width:0;height:0;border-left:4px solid currentColor;border-top:3.5px solid transparent;border-bottom:3.5px solid transparent;transition:transform var(--t)}
+details[open]>summary::before{transform:rotate(90deg)}
+summary:hover{color:var(--slate12)}
+details .frm{margin-top:16px}
+.testres{display:grid;gap:6px}
+pre{margin:0;white-space:pre-wrap;word-break:break-all;max-height:160px;overflow:auto;font-family:var(--mono);font-size:12px;line-height:18px;color:var(--slate11);background:var(--slate1);border:var(--hair);border-radius:var(--r-sm);padding:8px 10px}
+.empty{color:var(--slate11);padding:16px;text-align:center}
+/* toast */
+#toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:50;display:flex;align-items:center;height:32px;padding:0 12px;border-radius:var(--r-sm);background:var(--slate12);color:var(--slate1);font-weight:500;border:var(--hair);border-color:var(--slate12)}
+#toast.err{background:var(--red9);border-color:var(--red9);color:#fff}
+@media (max-width:820px){
+  header nav{display:none}
+  .g2,.g3{grid-template-columns:1fr}
+  .kv{grid-template-columns:minmax(0,1fr) auto}
+  .kv>div:first-child,.kv>div:nth-child(4){grid-column:1/-1}
+  main{padding:16px 16px 48px;gap:24px}
+  #editor{padding:16px}
+  th,td{padding:8px 10px}
 }
-@media (max-width:560px){.steps{grid-template-columns:1fr}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
 <body>
 <header>
-  <div class="brand"><i></i>api2cursor <small id="ver"></small></div>
-  <nav class="links" aria-label="页内">
-    <a href="#ups">上游</a><a href="#cursor">Cursor</a><a href="#logs">日志</a><a href="#more">更多</a>
-  </nav>
-  <button class="nav-cta" type="button" onclick="logout()">退出</button>
+  <div class="brand"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><rect width="16" height="16" rx="4" fill="#0090ff"/><path d="M4.5 11V5.5l7 5V5" stroke="#fff" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>api2cursor</div>
+  <nav aria-label="页面导航"><a href="#ups">上游</a><a href="#cursor">Cursor</a><a href="#logs">日志</a><a href="#more">设置</a></nav>
+  <div class="end"><span class="s dim" id="ver"></span><button class="g sm" type="button" id="logout">退出</button></div>
 </header>
 <main id="app" hidden>
-  <ol class="steps" id="steps" aria-label="设置进度"></ol>
+  <ol class="steps panel" id="steps" aria-label="启动进度"></ol>
   <div id="urlWarn" class="banner" role="status" hidden>
-    <span>隧道地址已变，请更新 Cursor 的 Base URL。</span>
-    <button type="button" class="small" id="urlCopy">复制</button>
-    <button type="button" class="small" id="urlAck">已更新</button>
+    <span>隧道地址已变更，Cursor 的 Base URL 需要更新。</span>
+    <div class="end"><button class="sm" type="button" id="urlCopy">复制新地址</button><button class="sm" type="button" id="urlAck">已更新</button></div>
   </div>
   <div id="remoteWarn" class="banner bad" role="status" hidden>
-    <span>远程管理已开启，隧道和局域网可打开本页。</span>
-    <button type="button" class="small" id="remoteOff">关闭</button>
+    <span>远程管理已开启，隧道和局域网可以打开本页。</span>
+    <div class="end"><button class="sm" type="button" id="remoteOff">关闭</button></div>
   </div>
 
-  <section class="card" id="ups">
-    <h2>上游 <button type="button" class="p small" id="addBtn">添加上游</button></h2>
-    <div class="tbl"><table><thead><tr><th>顺序</th><th>名称</th><th>格式</th><th>Base URL</th><th>Key</th><th>模型</th><th>状态</th><th></th></tr></thead><tbody id="upsBody"></tbody></table></div>
+  <section id="ups">
+    <div class="head">
+      <h2>上游</h2>
+      <div class="end"><button class="p" type="button" id="addBtn">添加上游</button></div>
+    </div>
+    <div class="tbl"><table>
+      <thead><tr><th>顺序</th><th>名称</th><th>格式</th><th>Base URL</th><th>Key</th><th>模型</th><th>状态</th><th></th></tr></thead>
+      <tbody id="upsBody"></tbody>
+    </table></div>
+
     <div id="editor" hidden>
-      <h2 id="edTitle">添加上游</h2>
-      <div class="grid2">
-        <div><label class="f" for="eName">名称</label><input id="eName" type="text" autocomplete="off" placeholder="main"><div class="field-err" id="errName" role="alert"></div></div>
-        <div><label class="f" for="eFormat">格式</label>
-          <select id="eFormat">
+      <div class="head"><h3 id="edTitle">添加上游</h3></div>
+      <div class="frm">
+        <div class="g3">
+          <label class="f" for="eName">名称<input id="eName" type="text" autocomplete="off" placeholder="main"><span class="fe" id="errName" role="alert"></span></label>
+          <label class="f" for="eFormat">格式<select id="eFormat">
             <option value="openai">openai</option>
             <option value="openai-responses">openai-responses</option>
             <option value="anthropic">anthropic</option>
             <option value="gemini">gemini</option>
             <option value="azure">azure</option>
-          </select></div>
-      </div>
-      <label class="f" for="eBase">Base URL</label>
-      <input id="eBase" type="text" inputmode="url" autocomplete="off" spellcheck="false">
-      <div class="field-err" id="errBase" role="alert"></div>
-      <div class="grid2">
-        <div>
-          <label class="f" for="eKey">API Key <span id="eKeyNow" class="mut"></span></label>
-          <input id="eKey" type="password" autocomplete="new-password" placeholder="sk-…">
-          <label class="check" id="eClearWrap" hidden><input type="checkbox" id="eClear">清除</label>
-          <div class="field-err" id="errKey" role="alert"></div>
+          </select></label>
+          <label class="f" for="eApiVer" id="eAzure" hidden>api-version<input id="eApiVer" type="text" placeholder="2024-10-21"><span class="fe" id="errVer" role="alert"></span></label>
         </div>
-        <div id="eAzure" hidden><label class="f" for="eApiVer">api-version</label><input id="eApiVer" type="text" placeholder="2024-10-21"><div class="field-err" id="errVer" role="alert"></div></div>
-      </div>
-      <label class="f" for="eModels">模型</label>
-      <textarea id="eModels" placeholder="每行一个，或留空"></textarea>
-      <div class="grid2">
-        <div>
-          <label class="f" for="eEffort">思考深度</label>
-          <select id="eEffort">
+        <label class="f" for="eBase">Base URL<input id="eBase" type="text" inputmode="url" autocomplete="off" spellcheck="false"><span class="fe" id="errBase" role="alert"></span></label>
+        <div class="g2">
+          <label class="f" for="eKey">API Key<span id="eKeyNow" class="dim"></span><input id="eKey" type="password" autocomplete="new-password" placeholder="sk-..."><span class="fe" id="errKey" role="alert"></span></label>
+          <div style="display:grid;align-content:end;gap:8px">
+            <label class="c s" id="eClearWrap" hidden><input type="checkbox" id="eClear">清除已保存的 Key</label>
+            <label class="c s" id="eGem" hidden><input type="checkbox" id="eKeyQ">Key 放在查询参数 ?key=</label>
+          </div>
+        </div>
+        <label class="f" for="eModels">模型<span class="dim">留空则自动获取</span><textarea id="eModels" placeholder="claude-sonnet-4-5"></textarea></label>
+        <div class="row">
+          <button type="button" id="fetchBtn">获取模型</button>
+          <button type="button" id="allBtn" hidden>全选</button>
+          <span id="eFetchMsg" class="s dim" role="status"></span>
+        </div>
+        <div id="eFetched" class="models"></div>
+        <div class="divider"></div>
+        <div class="g2">
+          <label class="f" for="eEffort">思考深度<select id="eEffort">
             <option value="">不设置</option>
             <option value="off">off 关闭</option>
             <option value="minimal">minimal</option>
@@ -180,95 +208,108 @@ summary:hover{color:var(--fg)}
             <option value="high">high</option>
             <option value="xhigh">xhigh</option>
             <option value="max">max</option>
-          </select>
+          </select></label>
+          <label class="f" for="eBudget">思考预算<input id="eBudget" type="number" step="1" min="-1" placeholder="tokens，留空按深度换算"></label>
         </div>
-        <div>
-          <label class="f" for="eBudget">思考预算 <span class="mut">tokens，留空按强度</span></label>
-          <input id="eBudget" type="number" step="1" min="-1" placeholder="例如 8192">
+        <div class="divider"></div>
+        <div class="row" style="align-items:flex-end">
+          <label class="f" for="tModel" style="flex:1;max-width:320px">测试模型<input id="tModel" type="text" list="tModels" placeholder="模型名" autocomplete="off"></label>
+          <datalist id="tModels"></datalist>
+          <button type="button" id="testBtn">测试连接</button>
+        </div>
+        <div id="tRes" class="testres" role="status"></div>
+        <details>
+          <summary>更多选项</summary>
+          <div class="frm">
+            <div class="g3">
+              <label class="f" for="eKeyEnv">Key 环境变量<input id="eKeyEnv" type="text" placeholder="RELAY_API_KEY" autocomplete="off"></label>
+              <label class="f" for="eFallback">备用上游<input id="eFallback" type="text" placeholder="逗号分隔" autocomplete="off"></label>
+              <label class="f" for="eTimeout">超时<input id="eTimeout" type="number" min="0" step="1000" placeholder="0"></label>
+            </div>
+            <label class="f" for="eModelReason">按模型覆盖思考<span class="dim">每行：模型名 深度 预算 levels:档位</span><textarea id="eModelReason" placeholder="claude-opus-4-5 high 16000&#10;gpt-5 levels:minimal,low,medium,high"></textarea></label>
+            <label class="f" for="eHeaders">请求头<span class="dim">每行：Name: value</span><textarea id="eHeaders" placeholder="X-Api-Version: 1"></textarea></label>
+            <label class="c"><input type="checkbox" id="eEnabled" checked>启用该上游</label>
+          </div>
+        </details>
+        <div class="row">
+          <button type="button" class="p" id="saveBtn">保存</button>
+          <button type="button" id="cancelBtn">取消</button>
+          <span id="eMsg" class="s err" role="alert"></span>
         </div>
       </div>
-      <p class="one">优先级：模型名后缀（-minimal / -low / -medium / -high / -xhigh / -max）&gt; 请求 reasoning_effort &gt; 按模型 &gt; 上游默认。模型不支持的强度会就近夹紧。Anthropic 4.6+ 与 Claude 5 发送 adaptive 与 effort；Claude 4.5 及以前发送 budget_tokens。Gemini 3+ 发送 thinkingLevel，Gemini 2.5 发送 thinkingBudget。</p>
+    </div>
+  </section>
+
+  <section id="cursor">
+    <div class="head">
+      <h2>Cursor</h2>
+      <span id="tunState" class="tag">未启动</span>
+      <div class="end"><button type="button" id="tunStart">启动隧道</button><button type="button" id="tunStop">停止</button></div>
+    </div>
+    <p id="tunErr" class="err s" role="alert"></p>
+    <div class="panel pad">
+      <div class="kv">
+        <div class="s dim">OpenAI API Key</div><div class="v" id="cKey"></div><button class="sm" type="button" id="copyKey">复制</button>
+        <div class="s dim">Override OpenAI Base URL</div><div class="v" id="cBase"></div><button class="sm" type="button" id="copyBase">复制</button>
+      </div>
+      <div class="divider" style="margin:16px 0"></div>
+      <div class="row" style="margin-bottom:8px"><span class="s dim">模型</span><button class="g sm end" type="button" id="copyAll" style="margin-left:auto">复制全部</button></div>
+      <div class="models" id="cModels"></div>
+    </div>
+  </section>
+
+  <section id="logs">
+    <div class="head">
+      <h2>日志</h2>
+      <div class="end">
+        <label class="c s dim"><input type="checkbox" id="autoLog" checked>自动刷新</label>
+        <button class="sm" type="button" id="logRefresh">刷新</button>
+        <button class="sm" type="button" id="logClear">清空</button>
+      </div>
+    </div>
+    <div class="tbl"><table>
+      <thead><tr><th>时间</th><th>模型</th><th>上游</th><th>状态</th><th>耗时</th><th>Tokens</th><th>备注</th></tr></thead>
+      <tbody id="logBody"></tbody>
+    </table></div>
+  </section>
+
+  <section id="more">
+    <div class="head"><h2>设置</h2></div>
+    <div class="panel pad" style="display:grid;gap:16px">
+      <div class="g2">
+        <label class="f" for="sPrefix">模型前缀<input id="sPrefix" type="text" autocomplete="off"></label>
+        <label class="f" for="sTimeout">请求超时<span class="dim">毫秒</span><input id="sTimeout" type="number" min="1000" step="1000"></label>
+      </div>
+      <div class="f"><span class="s dim">代理 token，填入 Cursor 的 API Key</span>
+        <div class="row"><input id="sToken" type="text" readonly class="mono" aria-label="代理 token"><button class="sm" type="button" id="regenBtn">重新生成</button></div>
+      </div>
+      <div class="divider"></div>
       <div class="row">
-        <button type="button" id="fetchBtn">获取模型</button>
-        <button type="button" id="allBtn" hidden>全选</button>
-        <span id="eFetchMsg" class="mut" role="status"></span>
+        <div><h3>远程管理</h3></div>
+        <span class="tag end" id="remoteTag">关闭</span>
       </div>
-      <div id="eFetched" class="models"></div>
-      <div class="row">
-        <label class="f" for="tModel" style="margin:0">测试</label>
-        <input id="tModel" type="text" list="tModels" placeholder="模型名" style="max-width:280px" autocomplete="off">
-        <datalist id="tModels"></datalist>
-        <button type="button" class="p" id="testBtn">测试</button>
+      <div id="remoteConfirm" class="row" hidden>
+        <span class="s warnc">开启后，任何获得管理密码的人都能通过隧道访问本页。</span>
+        <button class="p sm" type="button" id="remoteYes">确认开启</button><button class="sm" type="button" id="remoteNo">取消</button>
       </div>
-      <div id="tRes" role="status"></div>
-      <details>
-        <summary>更多字段</summary>
-        <div class="grid2">
-          <div><label class="f" for="eKeyEnv">Key 环境变量</label><input id="eKeyEnv" type="text" placeholder="RELAY_API_KEY" autocomplete="off"></div>
-          <div><label class="f" for="eFallback">备用上游</label><input id="eFallback" type="text" placeholder="名称，逗号分隔" autocomplete="off"></div>
-          <div><label class="f" for="eTimeout">超时 ms</label><input id="eTimeout" type="number" min="0" step="1000" placeholder="0"></div>
-          <div><label class="check" for="eEnabled"><input type="checkbox" id="eEnabled" checked>启用</label>
-            <label class="check" id="eGem" for="eKeyQ" hidden><input type="checkbox" id="eKeyQ">Key 放在 ?key=</label></div>
-        </div>
-        <label class="f" for="eModelReason">按模型覆盖思考</label>
-        <textarea id="eModelReason" placeholder="模型名 强度 [预算] [levels:档位]&#10;claude-opus-4-5 high 16000&#10;gpt-5 levels:minimal,low,medium,high&#10;gemini-2.5-flash off"></textarea>
-        <label class="f" for="eHeaders">请求头</label>
-        <textarea id="eHeaders" placeholder="Name: value"></textarea>
-      </details>
-      <div class="row"><button type="button" class="p" id="saveBtn">保存</button><button type="button" id="cancelBtn">取消</button><span id="eMsg" class="err" role="alert"></span></div>
+      <div class="row"><button type="button" id="remoteOn">开启远程管理</button></div>
+      <div class="divider"></div>
+      <div><div class="row" style="margin-bottom:8px"><h3>模型别名</h3><button class="sm end" type="button" id="addAliasBtn" style="margin-left:auto">添加</button></div>
+        <div class="tbl"><table><thead><tr><th>显示名</th><th>上游</th><th>模型</th><th></th></tr></thead><tbody id="aliases"></tbody></table></div>
+      </div>
+      <div class="divider"></div>
+      <div class="g2">
+        <label class="f" for="newPw">修改管理密码<span class="dim">至少 8 位</span><input id="newPw" type="password" placeholder="新密码" autocomplete="new-password"></label>
+        <div class="row" style="align-items:end"><button type="button" id="pwBtn">修改密码</button><span id="pwMsg" class="s" role="status"></span></div>
+      </div>
+      <div class="row"><button class="p" type="button" id="saveSetBtn">保存设置</button><span id="sMsg" class="s" role="status"></span></div>
     </div>
   </section>
-
-  <section class="card" id="cursor">
-    <h2>Cursor</h2>
-    <div class="row">
-      <span id="tunState" class="tag off">未启动</span>
-      <button type="button" class="p" id="tunStart">启动隧道</button>
-      <button type="button" id="tunStop">停止</button>
-      <button type="button" class="p" id="copyAll">全部复制</button>
-    </div>
-    <p id="tunErr" class="err" role="alert"></p>
-    <div class="kv">
-      <div class="lab">OpenAI API Key</div><div class="v mono" id="cKey"></div><button type="button" id="copyKey">复制</button>
-      <div class="lab">Base URL</div><div class="v mono" id="cBase"></div><button type="button" id="copyBase">复制</button>
-    </div>
-    <label class="f">模型</label>
-    <div class="models" id="cModels"></div>
-    <p class="one">Settings → Models：粘贴 Key 与 Base URL，添加带前缀的模型并勾选，关掉不用的。</p>
-  </section>
-
-  <section class="card" id="logs">
-    <h2>日志 <button type="button" class="small" id="logRefresh">刷新</button><button type="button" class="small" id="logClear">清空</button>
-      <label class="check" for="autoLog"><input type="checkbox" id="autoLog" checked>自动刷新</label></h2>
-    <div class="tbl"><table><thead><tr><th>时间</th><th>模型</th><th>上游</th><th>状态</th><th>耗时</th><th>tokens</th><th>备注</th></tr></thead><tbody id="logBody"></tbody></table></div>
-  </section>
-
-  <details class="card" id="more">
-    <summary>更多</summary>
-    <div class="grid2">
-      <div><label class="f" for="sPrefix">模型前缀</label><input id="sPrefix" type="text" autocomplete="off"></div>
-      <div><label class="f" for="sTimeout">超时 ms</label><input id="sTimeout" type="number" min="1000" step="1000"></div>
-      <div><label class="f" for="sToken">proxy_token</label>
-        <div class="row" style="margin:0"><input id="sToken" type="text" readonly class="mono"><button type="button" id="regenBtn">重新生成</button></div></div>
-      <div>
-        <label class="f">远程管理 <span id="remoteState" class="tag off">关闭</span></label>
-        <button type="button" id="remoteOn">开启</button>
-        <div id="remoteConfirm" hidden>
-          <p class="one">开启后隧道和局域网可打开本页。</p>
-          <div class="row"><button type="button" class="p" id="remoteYes">确认开启</button><button type="button" id="remoteNo">取消</button></div>
-        </div>
-      </div>
-    </div>
-    <label class="f">别名</label>
-    <div class="tbl"><table><thead><tr><th>显示名</th><th>上游</th><th>模型</th><th></th></tr></thead><tbody id="aliases"></tbody></table></div>
-    <div class="row"><button type="button" id="addAliasBtn">添加别名</button><button type="button" class="p" id="saveSetBtn">保存</button><span id="sMsg" role="status"></span></div>
-    <div class="row"><label class="f" for="newPw" style="margin:0">新密码</label><input id="newPw" type="password" placeholder="至少 8 位" style="max-width:220px" autocomplete="new-password"><button type="button" id="pwBtn">修改</button><span id="pwMsg" role="status"></span></div>
-  </details>
 </main>
-<p id="boot" class="empty" style="text-align:center;padding:48px">加载中</p>
+<p id="boot" class="empty">加载中</p>
 <div id="toast" role="status" aria-live="polite" hidden></div>
 <script>
-var S=null, editing=null, fetched=[], busy=false;
+var S=null, editing=null, fetched=[], booted=false;
 var PRESETS={
   openai:{base:'https://your-relay.example.com/v1'},
   'openai-responses':{base:'https://api.openai.com/v1'},
@@ -277,26 +318,27 @@ var PRESETS={
   azure:{base:'https://YOUR-RESOURCE.openai.azure.com',ver:'2024-10-21'}
 };
 var PRESET_BASES=Object.keys(PRESETS).map(function(k){return PRESETS[k].base});
+var STEPS=[{id:'up',name:'添加上游',go:'ups'},{id:'test',name:'测试通过',go:'ups'},{id:'tun',name:'启动隧道',go:'cursor'},{id:'hit',name:'Cursor 已请求',go:'logs'}];
 function $(id){return document.getElementById(id)}
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
-function toast(m){var t=$('toast');t.textContent=m;t.hidden=false;clearTimeout(t._h);t._h=setTimeout(function(){t.hidden=true},1800)}
+function toast(m,bad){var t=$('toast');t.textContent=m;t.className=bad?'err':'';t.hidden=false;clearTimeout(t._h);t._h=setTimeout(function(){t.hidden=true},2200)}
 function explain(status,msg){
   msg=String(msg||'');
   var code=Number(status)||0, h=/\bHTTP\s+(\d{3})\b/i.exec(msg); if(!code&&h) code=Number(h[1]);
-  if(/7844/.test(msg)) return '出站 7844 被拦截。可换网络，或用 ngrok http <端口>，把 https 地址加 /v1 填进 Cursor。';
-  if(code===401||/invalid[_\s-]?api[_\s-]?key|incorrect api key|authentication_error|\bbad key\b/i.test(msg)) return '密钥被拒绝。检查 API Key。';
-  if(code===403&&/api key|permission/i.test(msg)) return '密钥被拒绝。检查 API Key。';
-  if(code===404) return /model/i.test(msg)?'没有这个模型。核对模型名，或 Base URL 路径。':'404：Base URL 路径可能不对。';
-  if(/ENOTFOUND|getaddrinfo|EAI_AGAIN/i.test(msg)) return '域名无法解析。检查 Base URL。';
-  if(/ECONNREFUSED/.test(msg)) return '连不上该地址。确认服务和端口。';
-  if(code===429) return '上游限流。稍后重试。';
+  if(/7844/.test(msg)) return '出站 7844 被拦截。可以换网络，或改用 ngrok http <端口>，把 https 地址加 /v1 填进 Cursor。';
+  if(code===401||/invalid[_\s-]?api[_\s-]?key|incorrect api key|authentication_error|\bbad key\b/i.test(msg)) return '密钥被拒绝，请检查 API Key。';
+  if(code===403&&/api key|permission/i.test(msg)) return '密钥被拒绝，请检查 API Key。';
+  if(code===404) return /model/i.test(msg)?'没有这个模型，请核对模型名或 Base URL 路径。':'404，Base URL 路径可能不对。';
+  if(/ENOTFOUND|getaddrinfo|EAI_AGAIN/i.test(msg)) return '域名无法解析，请检查 Base URL。';
+  if(/ECONNREFUSED/.test(msg)) return '无法连接该地址，请确认服务和端口。';
+  if(code===429) return '上游限流，请稍后重试。';
   return '';
 }
 async function api(path, body){
   var opt={method:body===undefined?'GET':'POST',headers:{'x-relay-admin':'1'}};
   if(body!==undefined){opt.headers['content-type']='application/json';opt.body=JSON.stringify(body)}
   var r=await fetch('/admin/api/'+path,opt);
-  if(r.status===401){location.reload();throw new Error('未登录')}
+  if(r.status===401){location.reload();throw new Error('登录已失效')}
   var j=await r.json().catch(function(){return {}});
   if(!r.ok){var err=new Error((j.error&&j.error.message)||('HTTP '+r.status));err.hint=j.error&&j.error.hint;err.status=r.status;throw err}
   return j;
@@ -309,32 +351,25 @@ function copyText(t){
 }
 async function load(){
   S=await api('state');
-  $('ver').textContent='v'+S.version+' · :'+S.port;
+  $('ver').textContent='v'+S.version;
   $('boot').hidden=true; $('app').hidden=false;
   renderSteps(); renderBanners(); renderUps(); renderCursor(); renderSettings();
-  if(!editing&&!S.upstreams.length) editUp(null);
+  if(!booted){booted=true; if(!S.upstreams.length) editUp(null)}
 }
 function stepState(){
   var has=S.upstreams.some(function(u){return u.enabled});
   var tested=!!(S.last_test&&S.last_test.ok&&S.upstreams.some(function(u){return u.name===S.last_test.upstream}));
   var tun=S.tunnel.state==='running'&&!!S.tunnel.url;
-  var hit=!!S.client_seen;
-  return [
-    {id:'up',name:'添加上游',ok:has,go:'ups'},
-    {id:'test',name:'测试通过',ok:tested,go:'ups'},
-    {id:'tun',name:'启动隧道',ok:tun,go:'cursor'},
-    {id:'hit',name:'Cursor 已请求',ok:hit,go:'logs'}
-  ];
+  return [{id:'up',ok:has},{id:'test',ok:tested},{id:'tun',ok:tun},{id:'hit',ok:!!S.client_seen}].map(function(x,i){return {id:x.id,ok:x.ok,name:STEPS[i].name,go:STEPS[i].go}});
 }
 function renderSteps(){
   var list=stepState(), cur=list.filter(function(s){return !s.ok})[0], ol=$('steps'); ol.innerHTML='';
   list.forEach(function(s,i){
-    var li=document.createElement('li'); li.className=(s.ok?'ok':'')+(cur&&cur.id===s.id?' now':'');
-    var b=document.createElement('button'); b.type='button';
-    b.innerHTML='<span class="k">0'+(i+1)+'</span><span>'+esc(s.name)+'</span><span class="tag '+(s.ok?'ok':'off')+'">'+(s.ok?'完成':'未完成')+'</span>';
-    b.setAttribute('aria-current',cur&&cur.id===s.id?'step':'false');
-    b.onclick=function(){$(s.go).open=true;$(s.go).scrollIntoView({behavior:'smooth',block:'start'});if(s.id==='up'&&!S.upstreams.length)editUp(null);if(s.id==='tun')$('tunStart').focus()};
-    li.appendChild(b); ol.appendChild(li);
+    var li=document.createElement('li');
+    li.innerHTML='<button type="button" class="st '+(s.ok?'ok':'')+(cur&&cur.id===s.id?' now':'')+'"'+(cur&&cur.id===s.id?' aria-current="step"':'')+'><b>'+(s.ok?'✓':i+1)+'</b>'+esc(s.name)+'</button>';
+    var b=li.querySelector('button');
+    b.onclick=function(){$(s.go).scrollIntoView({block:'start'});if(s.id==='up'&&!S.upstreams.length)editUp(null);if(s.id==='tun')$('tunStart').focus()};
+    ol.appendChild(li);
   });
 }
 function renderBanners(){
@@ -344,37 +379,35 @@ function renderBanners(){
 }
 function renderUps(){
   var tb=$('upsBody'); tb.innerHTML='';
-  if(!S.upstreams.length) tb.innerHTML='<tr><td colspan="8" class="empty">无上游</td></tr>';
+  if(!S.upstreams.length){tb.innerHTML='<tr><td colspan="8" class="empty">还没有上游</td></tr>';return}
   S.upstreams.forEach(function(u){
     var tr=document.createElement('tr');
-    tr.innerHTML='<td class="ord"><button type="button" class="small" data-a="up" aria-label="上移">↑</button> <button type="button" class="small" data-a="down" aria-label="下移">↓</button></td>'+
+    tr.innerHTML='<td><span class="ord"><button type="button" class="sm" data-a="up" aria-label="上移">↑</button><button type="button" class="sm" data-a="down" aria-label="下移">↓</button></span></td>'+
       '<td><b>'+esc(u.name)+'</b></td><td><span class="tag plain">'+esc(u.format)+'</span></td>'+
       '<td class="mono wrap">'+esc(u.base_url||'—')+'</td>'+
-      '<td class="mono">'+(u.api_key_set?esc(u.api_key_masked):'<span class="mut">无</span>')+'</td>'+
-      '<td>'+(u.models.length?u.models.length:'<span class="mut">自动</span>')+'</td>'+
-      '<td><span class="tag '+(u.enabled?'ok':'off')+'">'+(u.enabled?'启用':'停用')+'</span></td>'+
-      '<td><button type="button" data-a="edit">编辑</button> <button type="button" data-a="test">测试</button> <button type="button" data-a="toggle">'+(u.enabled?'停用':'启用')+'</button> <button type="button" class="d" data-a="del">删除</button></td>';
-    tr.querySelectorAll('button').forEach(function(b){b.onclick=function(){upAction(b.getAttribute('data-a'),u)}});
+      '<td class="mono">'+(u.api_key_set?esc(u.api_key_masked):'<span class="dim">无</span>')+'</td>'+
+      '<td>'+(u.models.length?u.models.length:'<span class="dim">自动</span>')+'</td>'+
+      '<td><span class="tag '+(u.enabled?'ok':'')+'">'+(u.enabled?'启用':'停用')+'</span></td>'+
+      '<td class="acts"><button type="button" class="sm" data-a="edit">编辑</button><button type="button" class="sm" data-a="test">测试</button><button type="button" class="sm" data-a="toggle">'+(u.enabled?'停用':'启用')+'</button><button type="button" class="sm d" data-a="del">删除</button></td>';
+    tr.querySelectorAll('button[data-a]').forEach(function(b){b.onclick=function(){upAction(b.getAttribute('data-a'),u)}});
     tb.appendChild(tr);
   });
-  var selModels=$('tModels'); if(document.activeElement!==$('tModel')) fillTestList();
 }
 function fillTestList(){
   var dl=$('tModels'); dl.innerHTML='';
-  var names=$('eModels').value.split(/[\n,]/).map(function(x){return x.trim()}).filter(Boolean);
-  names.forEach(function(m){var o=document.createElement('option');o.value=m;dl.appendChild(o)});
+  modelSet().forEach(function(m){var o=document.createElement('option');o.value=m;dl.appendChild(o)});
 }
 async function upAction(a,u){
   try{
-    if(a==='edit') return editUp(u);
+    if(a==='edit'){if(!$('editor').hidden&&editing===u.name){$('editor').hidden=true;editing=null;return}return editUp(u)}
     if(a==='test'){editUp(u);$('tModel').value=u.models[0]||'';$('testBtn').focus();return}
-    if(a==='del'){if(!confirm('删除 '+u.name+'？'))return;await api('upstream/delete',{name:u.name});if(editing===u.name)closeEd()}
+    if(a==='del'){if(!confirm('删除上游 '+u.name+'？'))return;await api('upstream/delete',{name:u.name});if(editing===u.name)closeEd()}
     if(a==='toggle') await api('upstream/toggle',{name:u.name});
     if(a==='up'||a==='down') await api('upstream/move',{name:u.name,dir:a});
     await load();
-  }catch(e){toast(e.hint||e.message)}
+  }catch(e){toast(e.hint||e.message,true)}
 }
-function setErr(id,input,msg){$(id).textContent=msg||'';if(input)input.classList.toggle('bad',!!msg);if(input)input.setAttribute('aria-invalid',msg?'true':'false')}
+function setErr(id,input,msg){$(id).textContent=msg||'';if(input){input.classList.toggle('bad',!!msg);input.setAttribute('aria-invalid',msg?'true':'false')}}
 function clearErrs(){['errName','errBase','errKey','errVer','eMsg'].forEach(function(id){$(id).textContent=''});['eName','eBase','eKey','eApiVer'].forEach(function(id){$(id).classList.remove('bad');$(id).removeAttribute('aria-invalid')})}
 function localBase(url){return /localhost|127\.0\.0\.1|\[::1\]/.test(url||'')}
 function applyFormat(force){
@@ -393,13 +426,13 @@ function editUp(u){
   $('eBase').value=u?u.base_url:'';
   $('eKey').value=''; $('eClear').checked=false;
   $('eClearWrap').hidden=!(u&&u.api_key_set);
-  $('eKeyNow').textContent=u&&u.api_key_set?u.api_key_masked:'';
-  $('eKey').placeholder=u&&u.api_key_set?'不修改':'sk-…';
+  $('eKeyNow').textContent=u&&u.api_key_set?'当前 '+u.api_key_masked:'';
+  $('eKey').placeholder=u&&u.api_key_set?'不修改则保持原值':'sk-...';
   $('eKeyEnv').value=u?u.api_key_env:'';
   $('eFallback').value=u?u.fallback.join(', '):'';
   $('eApiVer').value=u&&u.api_version?u.api_version:'';
   $('eKeyQ').checked=!!(u&&u.key_in_query);
-  $('eTimeout').value=u?u.timeout_ms:0;
+  $('eTimeout').value=u&&u.timeout_ms?u.timeout_ms:'';
   $('eEnabled').checked=u?u.enabled:true;
   $('eHeaders').value=u?Object.keys(u.headers||{}).map(function(k){return k+': '+u.headers[k]}).join('\n'):'';
   $('eModels').value=u?u.models.join('\n'):'';
@@ -409,7 +442,9 @@ function editUp(u){
   $('eFetched').innerHTML=''; $('eFetchMsg').textContent=''; $('allBtn').hidden=true; fetched=[];
   $('tRes').innerHTML=''; $('tModel').value=u&&u.models[0]?u.models[0]:'';
   clearErrs(); applyFormat(!u); fillTestList();
-  $('editor').hidden=false; $('eName').focus();
+  $('editor').hidden=false;
+  $('editor').scrollIntoView({block:'nearest'});
+  if(!u) $('eName').focus();
 }
 function closeEd(){editing=null;$('editor').hidden=true}
 function formatReason(obj){
@@ -436,6 +471,12 @@ function parseReason(text){
   });
   return out;
 }
+function modelSet(){return $('eModels').value.split(/[\n,]/).map(function(x){return x.trim()}).filter(Boolean)}
+function setModels(list){$('eModels').value=list.join('\n');fillTestList();markFetched()}
+function markFetched(){
+  var have=modelSet();
+  Array.prototype.forEach.call($('eFetched').children,function(s){var on=have.indexOf(s.dataset.m)>=0;s.classList.toggle('on',on);s.setAttribute('aria-pressed',on?'true':'false')});
+}
 function draft(){
   return {name:$('eName').value.trim(),format:$('eFormat').value,base_url:$('eBase').value.trim(),api_key:$('eKey').value,clear_api_key:$('eClear').checked,
     api_key_env:$('eKeyEnv').value.trim(),fallback:$('eFallback').value,api_version:$('eApiVer').value.trim(),key_in_query:$('eKeyQ').checked,
@@ -445,14 +486,14 @@ function draft(){
 function validate(){
   clearErrs();
   var d=draft(), ok=true, u=editing&&S.upstreams.filter(function(x){return x.name===editing})[0];
-  if(!/^[A-Za-z0-9_.-]{1,40}$/.test(d.name)){setErr('errName',$('eName'),'只能用字母、数字和 _ . -');ok=false}
+  if(!/^[A-Za-z0-9_.-]{1,40}$/.test(d.name)){setErr('errName',$('eName'),'只能使用字母、数字和 _ . -');ok=false}
   var urlOk=false; try{var x=new URL(d.base_url);urlOk=/^https?:$/.test(x.protocol)}catch(e){}
-  if(!d.base_url){setErr('errBase',$('eBase'),'填写 Base URL');ok=false}
-  else if(!urlOk){setErr('errBase',$('eBase'),'需以 http:// 或 https:// 开头');ok=false}
+  if(!d.base_url){setErr('errBase',$('eBase'),'请填写 Base URL');ok=false}
+  else if(!urlOk){setErr('errBase',$('eBase'),'需要以 http:// 或 https:// 开头');ok=false}
   var hasKey=!!d.api_key.trim()||!!d.api_key_env||(u&&u.api_key_set&&!d.clear_api_key);
   var keyOptional=d.format==='openai'&&localBase(d.base_url);
-  if(!hasKey&&!keyOptional){setErr('errKey',$('eKey'),'填写 API Key');ok=false}
-  if(d.format==='azure'&&!/\/openai\/v1\/?$/.test(d.base_url)&&!d.api_version){setErr('errVer',$('eApiVer'),'填写 api-version');ok=false}
+  if(!hasKey&&!keyOptional){setErr('errKey',$('eKey'),'请填写 API Key');ok=false}
+  if(d.format==='azure'&&!/\/openai\/v1\/?$/.test(d.base_url)&&!d.api_version){setErr('errVer',$('eApiVer'),'请填写 api-version');ok=false}
   return ok;
 }
 async function saveUp(){
@@ -462,22 +503,16 @@ async function saveUp(){
   catch(e){$('eMsg').textContent=e.hint||e.message}
   $('saveBtn').disabled=false;
 }
-function modelSet(){return $('eModels').value.split(/[\n,]/).map(function(x){return x.trim()}).filter(Boolean)}
-function setModels(list){$('eModels').value=list.join('\n');fillTestList();markFetched()}
-function markFetched(){
-  var have=modelSet();
-  Array.prototype.forEach.call($('eFetched').children,function(s){s.classList.toggle('on',have.indexOf(s.dataset.m)>=0);s.setAttribute('aria-pressed',have.indexOf(s.dataset.m)>=0?'true':'false')});
-}
 async function fetchModels(){
   if(!validate()) return;
   $('fetchBtn').disabled=true; $('eFetchMsg').textContent='获取中'; $('eFetched').innerHTML=''; fetched=[];
   try{
     var j=await api('upstream/models',{draft:draft(),original_name:editing});
     fetched=j.models||[];
-    $('eFetchMsg').textContent=fetched.length?fetched.length+' 个':'无模型';
+    $('eFetchMsg').textContent=fetched.length?fetched.length+' 个模型':'没有返回模型';
     $('allBtn').hidden=!fetched.length;
     fetched.forEach(function(m){
-      var s=document.createElement('span'); s.textContent=m; s.tabIndex=0; s.dataset.m=m; s.setAttribute('role','button');
+      var s=document.createElement('span'); s.textContent=m; s.tabIndex=0; s.dataset.m=m; s.setAttribute('role','button'); s.setAttribute('aria-pressed','false');
       var toggle=function(){var cur=modelSet(), i=cur.indexOf(m); if(i<0)cur.push(m); else cur.splice(i,1); setModels(cur)};
       s.onclick=toggle; s.onkeydown=function(ev){if(ev.key==='Enter'||ev.key===' '){ev.preventDefault();toggle()}};
       $('eFetched').appendChild(s);
@@ -489,30 +524,34 @@ async function fetchModels(){
 async function runTest(){
   var name=editing||($('eName').value.trim());
   var model=$('tModel').value.trim()||modelSet()[0]||'';
-  if(!name||!S.upstreams.some(function(u){return u.name===name})){$('tRes').innerHTML='<p class="err">先保存</p>';return}
-  if(!model){$('tRes').innerHTML='<p class="err">填写模型</p>';return}
-  $('testBtn').disabled=true; $('tRes').innerHTML='<p class="mut">测试中</p>';
+  if(!name||!S.upstreams.some(function(u){return u.name===name})){$('tRes').innerHTML='<p class="s err">请先保存上游再测试。</p>';return}
+  if(!model){$('tRes').innerHTML='<p class="s err">请填写要测试的模型名。</p>';return}
+  $('testBtn').disabled=true; $('tRes').innerHTML='<p class="s dim">测试中</p>';
   try{
     var j=await api('test',{upstream:name,model:model});
     var hint=j.hint||explain(j.status,j.error);
     $('tRes').innerHTML=j.success
-      ? '<p class="okc">通过 · '+j.ms+' ms · '+esc(j.model)+'</p>'+(j.reply?'<pre>'+esc(j.reply)+'</pre>':'')
-      : '<p class="err">'+(j.status||'')+' · '+esc(hint||j.error||'失败')+'</p>';
+      ? '<p class="s okc">通过，'+j.ms+' ms</p>'+(j.reply?'<pre>'+esc(j.reply)+'</pre>':'')
+      : '<p class="s err">'+(j.status?j.status+' ':'')+esc(hint||j.error||'失败')+'</p>';
     await load(); loadLogs();
-  }catch(e){$('tRes').innerHTML='<p class="err">'+esc(e.hint||explain(e.status,e.message)||e.message)+'</p>'}
+  }catch(e){$('tRes').innerHTML='<p class="s err">'+esc(e.hint||explain(e.status,e.message)||e.message)+'</p>'}
   $('testBtn').disabled=false;
 }
 function renderCursor(){
   var t=S.tunnel, st=$('tunState');
   st.textContent={stopped:'未启动',starting:'启动中',connecting:'连接中',running:'运行中',error:'出错'}[t.state]||t.state;
-  st.className='tag '+({running:'ok',error:'err',starting:'warn',connecting:'warn'}[t.state]||'off');
+  st.className='tag '+({running:'ok',error:'err',starting:'warn',connecting:'warn'}[t.state]||'');
   var err=t.error||'';
   $('tunErr').textContent=err?(explain(0,err)||err):'';
+  $('tunErr').hidden=!err;
   $('cKey').textContent=S.cursor.api_key;
-  $('cBase').textContent=S.cursor.base_url||'未启动';
-  $('cBase').title=S.cursor.local_base_url||'';
+  $('cKey').title=S.cursor.api_key;
+  $('cBase').textContent=S.cursor.base_url||'未启动隧道';
+  $('cBase').title=S.cursor.base_url||S.cursor.local_base_url||'';
+  $('tunStart').hidden=t.state==='running'||t.state==='starting'||t.state==='connecting';
+  $('tunStop').hidden=t.state==='stopped';
   var box=$('cModels'); box.innerHTML='';
-  if(!S.cursor.models.length){box.innerHTML='<span class="mut" style="cursor:default">无模型</span>';return}
+  if(!S.cursor.models.length){box.innerHTML='<span class="tag plain">无模型</span>';return}
   S.cursor.models.forEach(function(x){
     var s=document.createElement('span'); s.textContent=x; s.tabIndex=0; s.setAttribute('role','button'); s.setAttribute('aria-label','复制 '+x);
     var go=function(){copyText(x)}; s.onclick=go; s.onkeydown=function(ev){if(ev.key==='Enter'||ev.key===' '){ev.preventDefault();go()}};
@@ -520,37 +559,35 @@ function renderCursor(){
   });
 }
 function cursorText(){
-  var lines=['OpenAI API Key: '+$('cKey').textContent,'Override OpenAI Base URL: '+$('cBase').textContent];
-  S.cursor.models.forEach(function(m){lines.push(m)});
-  return lines.join('\n');
+  return ['OpenAI API Key: '+$('cKey').textContent,'Override OpenAI Base URL: '+$('cBase').textContent].concat(S.cursor.models).join('\n');
 }
-async function ackUrl(){
-  if(!S.tunnel.url) return;
-  try{await api('tunnel/ack',{url:S.tunnel.url});await load()}catch(e){toast(e.message)}
-}
+async function ackUrl(){if(!S.tunnel.url)return;try{await api('tunnel/ack',{url:S.tunnel.url});await load()}catch(e){toast(e.message,true)}}
 async function tunnelStart(){
   $('tunStart').disabled=true; $('tunState').textContent='启动中'; $('tunState').className='tag warn';
-  try{await api('tunnel/start',{})}catch(e){toast(e.hint||e.message)}
+  try{await api('tunnel/start',{})}catch(e){toast(e.hint||e.message,true)}
   $('tunStart').disabled=false; await load();
 }
-async function tunnelStop(){try{await api('tunnel/stop',{})}catch(e){toast(e.message)}await load()}
+async function tunnelStop(){try{await api('tunnel/stop',{})}catch(e){toast(e.message,true)}await load()}
 function renderSettings(){
   var typing=document.activeElement&&['sPrefix','sTimeout','sToken','newPw'].indexOf(document.activeElement.id)>=0;
   if(!typing){$('sPrefix').value=S.model_prefix;$('sTimeout').value=S.timeout_ms;$('sToken').value=S.proxy_token}
-  $('remoteState').textContent=S.admin_remote?'开启':'关闭';
-  $('remoteState').className='tag '+(S.admin_remote?'err':'off');
+  $('remoteTag').textContent=S.admin_remote?'已开启':'关闭';
+  $('remoteTag').className='tag end '+(S.admin_remote?'err':'');
   $('remoteOn').hidden=!!S.admin_remote;
   if(!S.admin_remote) $('remoteConfirm').hidden=true;
-  if(S.password_from_env){$('newPw').disabled=true;$('pwBtn').disabled=true;$('newPw').placeholder='环境变量'}
+  if(S.password_from_env){$('newPw').disabled=true;$('pwBtn').disabled=true;$('newPw').placeholder='由环境变量 ADMIN_PASSWORD 指定'}
   var tb=$('aliases');
   if(tb.dataset.lock==='1') return;
   tb.innerHTML='';
-  Object.keys(S.models||{}).forEach(function(k){addAlias(k,S.models[k].upstream,S.models[k].model)});
+  var keys=Object.keys(S.models||{});
+  if(!keys.length){tb.innerHTML='<tr><td colspan="4" class="empty">还没有别名</td></tr>';return}
+  keys.forEach(function(k){addAlias(k,S.models[k].upstream,S.models[k].model)});
 }
 function addAlias(k,up,m){
+  var empty=$('aliases').querySelector('td.empty'); if(empty) empty.parentElement.remove();
   var tr=document.createElement('tr');
-  var opts='<option value="">自动</option>'+S.upstreams.map(function(u){return '<option value="'+esc(u.name)+'">'+esc(u.name)+'</option>'}).join('');
-  tr.innerHTML='<td><input type="text" class="aK" aria-label="显示名"></td><td><select class="aU" aria-label="上游">'+opts+'</select></td><td><input type="text" class="aM" aria-label="模型"></td><td><button type="button" class="d">删除</button></td>';
+  var opts='<option value="">自动选择</option>'+S.upstreams.map(function(u){return '<option value="'+esc(u.name)+'">'+esc(u.name)+'</option>'}).join('');
+  tr.innerHTML='<td><input type="text" class="aK" aria-label="显示名"></td><td><select class="aU" aria-label="上游">'+opts+'</select></td><td><input type="text" class="aM" aria-label="模型"></td><td class="acts"><button type="button" class="sm d">删除</button></td>';
   tr.querySelector('.aK').value=k||''; tr.querySelector('.aU').value=up||''; tr.querySelector('.aM').value=m||'';
   tr.querySelector('button').onclick=function(){tr.remove();$('aliases').dataset.lock='1'};
   $('aliases').appendChild(tr);
@@ -568,29 +605,35 @@ async function saveSettings(){
 async function setRemote(on){
   try{
     await api('settings', on?{admin_remote:true,confirm_admin_remote:true}:{admin_remote:false});
-    $('remoteConfirm').hidden=true; await load();
-  }catch(e){toast(e.hint||e.message)}
+    $('remoteConfirm').hidden=true; await load(); toast(on?'远程管理已开启':'远程管理已关闭');
+  }catch(e){toast(e.hint||e.message,true)}
 }
-async function regenToken(){if(!confirm('重新生成后需更新 Cursor 的 Key。继续？'))return;try{await api('token/regenerate',{});await load();toast('已重新生成')}catch(e){toast(e.message)}}
-async function changePw(){try{await api('password',{password:$('newPw').value});$('newPw').value='';$('pwMsg').innerHTML='<span class="okc">已修改</span>'}catch(e){$('pwMsg').innerHTML='<span class="err">'+esc(e.message)+'</span>'}}
+async function regenToken(){if(!confirm('重新生成后需要在 Cursor 中更新 API Key，继续？'))return;try{await api('token/regenerate',{});await load();toast('已重新生成')}catch(e){toast(e.message,true)}}
+async function changePw(){
+  var v=$('newPw').value;
+  if(v.length<8){$('pwMsg').innerHTML='<span class="err">至少 8 位</span>';return}
+  try{await api('password',{password:v});$('newPw').value='';$('pwMsg').innerHTML='<span class="okc">已修改</span>'}catch(e){$('pwMsg').innerHTML='<span class="err">'+esc(e.message)+'</span>'}
+}
 async function logout(){try{await api('logout',{})}catch(e){}location.reload()}
 function logHint(l){return l.error?(explain(l.status,l.error)||l.error):''}
 async function loadLogs(){
   try{
     var j=await api('logs'), tb=$('logBody'); tb.innerHTML='';
-    if(!j.logs.length){tb.innerHTML='<tr><td colspan="7" class="empty">暂无请求</td></tr>';return}
+    if(!j.logs.length){tb.innerHTML='<tr><td colspan="7" class="empty">还没有请求</td></tr>';return}
     if(j.logs.some(function(l){return l.source==='client'})&&S&&!S.client_seen) load();
     j.logs.forEach(function(l){
       var tr=document.createElement('tr'), ok=l.status>=200&&l.status<400, hint=logHint(l);
-      tr.innerHTML='<td>'+esc(new Date(l.time).toLocaleTimeString())+'</td><td class="mono">'+esc(l.model)+(l.stream?' <span class="mut">流</span>':'')+'</td>'+
-        '<td class="mono">'+esc(l.upstream)+'</td><td><span class="tag '+(ok?'ok':'err')+'">'+l.status+'</span></td><td>'+l.ms+' ms</td>'+
-        '<td>'+(l.prompt_tokens==null?'—':l.prompt_tokens+' / '+l.completion_tokens)+'</td>'+
-        '<td class="wrap"'+(l.error?' title="'+esc(l.error)+'"':'')+'>'+(l.source==='test'?'<span class="tag plain">测试</span> ':'')+(l.fallback_from?'备用 ':'')+esc(hint)+'</td>';
+      tr.innerHTML='<td class="mono">'+esc(new Date(l.time).toLocaleTimeString('zh-CN',{hour12:false}))+'</td>'+
+        '<td class="mono">'+esc(l.model)+(l.stream?' <span class="tag plain">流式</span>':'')+'</td>'+
+        '<td class="mono">'+esc(l.upstream)+'</td><td><span class="tag '+(ok?'ok':'err')+'">'+l.status+'</span></td>'+
+        '<td class="mono">'+l.ms+' ms</td>'+
+        '<td class="mono">'+(l.prompt_tokens==null?'—':l.prompt_tokens+' / '+l.completion_tokens)+'</td>'+
+        '<td class="wrap s" title="'+esc(l.error||'')+'">'+(l.source==='test'?'<span class="tag plain">测试</span> ':'')+(l.fallback_from?'<span class="tag plain">备用上游</span> ':'')+esc(hint)+'</td>';
       tb.appendChild(tr);
     });
   }catch(e){}
 }
-$('addBtn').onclick=function(){editUp(null)};
+$('addBtn').onclick=function(){editing=null;editUp(null)};
 $('cancelBtn').onclick=closeEd;
 $('saveBtn').onclick=saveUp;
 $('fetchBtn').onclick=fetchModels;
@@ -606,7 +649,7 @@ $('copyAll').onclick=function(){copyText(cursorText());if(S.tunnel.url)ackUrl()}
 $('urlCopy').onclick=function(){copyText(S.tunnel.url+'/v1')};
 $('urlAck').onclick=ackUrl;
 $('remoteOff').onclick=function(){setRemote(false)};
-$('remoteOn').onclick=function(){$('remoteConfirm').hidden=false;$('remoteYes').focus()};
+$('remoteOn').onclick=function(){var c=$('remoteConfirm');c.hidden=!c.hidden;if(!c.hidden)$('remoteYes').focus()};
 $('remoteYes').onclick=function(){setRemote(true)};
 $('remoteNo').onclick=function(){$('remoteConfirm').hidden=true};
 $('addAliasBtn').onclick=function(){addAlias('','','');$('aliases').dataset.lock='1'};
@@ -616,9 +659,10 @@ $('regenBtn').onclick=regenToken;
 $('pwBtn').onclick=changePw;
 $('logRefresh').onclick=loadLogs;
 $('logClear').onclick=async function(){await api('logs/clear',{});loadLogs()};
+$('logout').onclick=logout;
 setInterval(function(){if($('autoLog').checked)loadLogs()},5000);
 setInterval(function(){if(S&&(S.tunnel.state==='starting'||S.tunnel.state==='connecting'))load()},2000);
-load().then(loadLogs).catch(function(e){$('boot').textContent=e.message||'加载失败'});
+load().then(loadLogs).catch(function(e){$('boot').textContent=e.hint||e.message||'加载失败';$('boot').className='empty err'});
 </script>
 </body>
 </html>

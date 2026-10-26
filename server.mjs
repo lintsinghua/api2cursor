@@ -1281,14 +1281,12 @@ async function cursorSettings() {
 }
 async function printCursorSettings() {
   const s = await cursorSettings();
-  console.log('\n================ 在 Cursor 里这样填 ================');
-  console.log('Cursor Settings → Models → API Keys');
-  console.log(`  OpenAI API Key           : ${s.api_key}`);
-  console.log(`  Override OpenAI Base URL : ${s.base_url || '(先启动隧道，Cursor 不能访问 localhost)'}`);
-  console.log('  再到 Models 列表点 "+ Add Custom Model"，逐个添加：');
-  if (s.models.length) for (const m of s.models.slice(0, 40)) console.log('    ' + m); else console.log(`    ${cfg.model_prefix}<模型名>   (例如 ${cfg.model_prefix}claude-sonnet-4-5)`);
-  if (s.models.length > 40) console.log(`    ... 共 ${s.models.length} 个，完整列表见管理页`);
-  console.log('====================================================\n');
+  console.log('\nCursor 设置 → Models → API Keys');
+  console.log(`  OpenAI API Key           ${s.api_key}`);
+  console.log(`  Override OpenAI Base URL ${s.base_url || '（先启动隧道，Cursor 访问不到 localhost）'}`);
+  if (s.models.length) console.log(`  Models                   ${s.models.length} 个，见管理页；例如 ${s.models[0]}`);
+  else console.log(`  Models                   ${cfg.model_prefix}<模型名>`);
+  console.log('');
 }
 
 // ---------------------------------------------------------------- admin
@@ -1319,23 +1317,31 @@ function adminHtml() {
   if (DEBUG || !ADMIN_HTML_CACHE) ADMIN_HTML_CACHE = fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : '<h1>admin.html 缺失</h1>';
   return ADMIN_HTML_CACHE;
 }
-const LOGIN_HTML = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#050506"><title>api2cursor · 登录</title>
-<style>:root{--bg:#050506;--panel:#0b0c0e;--line:rgba(255,255,255,.08);--line-2:rgba(255,255,255,.14);--fg:#f4f5f7;--fg-2:rgba(244,245,247,.64);--fg-hint:rgba(244,245,247,.56);--accent:#37bdf8;--ease:cubic-bezier(.22,1,.36,1);
---sans:"Montserrat",-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif}
-*{box-sizing:border-box}body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;font-family:var(--sans);font-size:14px;line-height:1.5;color:var(--fg);-webkit-font-smoothing:antialiased;
-background:radial-gradient(120% 55% at 50% -12%,rgba(47,120,168,.22),transparent 62%),radial-gradient(60% 40% at 50% 118%,rgba(55,189,248,.10),transparent 70%),var(--bg)}
-form{width:min(380px,calc(100vw - 32px));background:var(--panel);border:1px solid var(--line);border-radius:28px;padding:36px;box-shadow:0 0 0 6px rgba(255,255,255,.02),0 60px 120px -60px rgba(0,0,0,.9)}
-.b{display:flex;align-items:center;gap:10px;font-size:16px;font-weight:600;letter-spacing:.06em}.b i{width:10px;height:10px;border-radius:50%;background:var(--accent);box-shadow:0 0 8px rgba(55,189,248,.7)}
-h1{font-size:28px;line-height:36px;font-weight:500;letter-spacing:-.03em;margin:22px 0 20px}h1 span{display:block;color:rgba(244,245,247,.4)}
-input{width:100%;padding:12px 16px;border:1px solid var(--line-2);border-radius:12px;background:rgba(255,255,255,.04);color:var(--fg);font:inherit}input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(55,189,248,.25)}
-button{margin-top:14px;width:100%;height:48px;border:0;border-radius:999px;background:rgba(255,255,255,.88);color:#0a0a0b;font:inherit;font-weight:500;cursor:pointer;transition:transform .3s var(--ease),background .3s,box-shadow .3s}
-button:hover{background:#fff;transform:translateY(-1px);box-shadow:0 0 0 1px rgba(255,255,255,.2),0 10px 30px -10px rgba(55,189,248,.55)}
-#e{color:#f87171;font-size:13px;margin-top:10px;min-height:1.2em}p{color:var(--fg-hint);font-size:12px;margin:8px 0 0}
-@media (prefers-reduced-motion:reduce){button{transition:none}button:hover{transform:none}}</style></head><body>
-<form id="f"><div class="b"><i></i>api2cursor</div><h1>登录</h1><input id="p" type="password" placeholder="管理密码" aria-label="管理密码" autofocus autocomplete="current-password"><button>登录</button><div id="e" role="alert"></div>
-<p>密码见启动终端。</p></form>
-<script>document.getElementById('f').onsubmit=async function(ev){ev.preventDefault();var r=await fetch('/admin/api/login',{method:'POST',headers:{'content-type':'application/json','x-relay-admin':'1'},body:JSON.stringify({password:document.getElementById('p').value})});
-if(r.ok)location.href='/admin';else{var j=await r.json().catch(function(){return{}});document.getElementById('e').textContent=(j.error&&j.error.message)||('登录失败 '+r.status);}};</script></body></html>`;
+const LOGIN_HTML = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#111113"><title>登录 api2cursor</title>
+<style>:root{--slate1:#111113;--slate2:#18191b;--slate3:#212225;--slate6:#363a3f;--slate7:#43484e;--slate8:#5a6169;--slate11:#b0b4ba;--slate12:#edeef0;--blue8:#2870bd;--blue9:#0090ff;--blue10:#3b9eff;--red9:#e5484d;--red11:#ff9592;
+--sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--slate1);color:var(--slate12);font:400 14px/20px var(--sans);-webkit-font-smoothing:antialiased;padding:16px}
+form{width:min(360px,100%);background:var(--slate2);border:.5px solid var(--slate6);border-radius:12px;padding:28px;display:grid;gap:16px}
+.b{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600}
+h1{font-size:18px;line-height:24px;font-weight:600;margin:0}
+input{width:100%;height:32px;padding:0 10px;border:.5px solid var(--slate7);border-radius:6px;background:var(--slate1);color:var(--slate12);font:inherit}
+input:hover{border-color:var(--slate8)}input:focus{outline:2px solid var(--blue8);outline-offset:1px;border-color:var(--blue8)}
+button{height:32px;border:0;border-radius:6px;background:var(--blue9);color:#fff;font:500 14px/1 var(--sans);cursor:pointer;transition:background-color 250ms ease-out}
+button:hover{background:var(--blue10)}
+#e{color:var(--red11);font-size:12px;line-height:16px;min-height:16px}
+p{color:var(--slate11);font-size:12px;line-height:16px;margin:0}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}</style></head><body>
+<form id="f">
+  <div class="b"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><rect width="16" height="16" rx="4" fill="#0090ff"/><path d="M4.5 11V5.5l7 5V5" stroke="#fff" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>api2cursor</div>
+  <h1>登录管理页</h1>
+  <input id="p" type="password" placeholder="管理密码" aria-label="管理密码" autofocus autocomplete="current-password">
+  <div id="e" role="alert"></div>
+  <button>登录</button>
+  <p>密码显示在启动终端。忘记密码可以运行 <code>npm start -- --reset-password</code> 重置。</p>
+</form>
+<script>document.getElementById('f').onsubmit=async function(ev){ev.preventDefault();var b=ev.target.querySelector('button');b.disabled=true;
+var r=await fetch('/admin/api/login',{method:'POST',headers:{'content-type':'application/json','x-relay-admin':'1'},body:JSON.stringify({password:document.getElementById('p').value})});
+if(r.ok){location.href='/admin';return}b.disabled=false;var j=await r.json().catch(function(){return{}});document.getElementById('e').textContent=(j.error&&j.error.message)||('登录失败 '+r.status);};</script></body></html>`;
 const SEC_HEADERS = { 'x-frame-options': 'DENY', 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer', 'cache-control': 'no-store' };
 const adminErr = (res, status, msg) => sendJson(res, status, { error: { message: msg } }, SEC_HEADERS);
 const readJsonBody = async (req) => JSON.parse((await readAll(req, 1024 * 1024)) || '{}');
@@ -1523,20 +1529,43 @@ async function onRequest(req, res) {
 }
 
 // ---------------------------------------------------------------- start
+if (ARGV.includes('--reset-password')) {
+  loadConfig();
+  const pw = rid(6);
+  cfg.admin_password_hash = hashPassword(pw);
+  saveConfig();
+  console.log(`管理密码已重置: ${pw}`);
+  console.log(`配置文件    : ${CONFIG_PATH}`);
+  if (process.env.ADMIN_PASSWORD) console.log('注意：当前环境变量 ADMIN_PASSWORD 仍然优先，需要重启时去掉它才会生效。');
+  process.exit(0);
+}
 loadConfig();
 const server = http.createServer(onRequest);
 server.requestTimeout = 0; server.headersTimeout = 60000; server.keepAliveTimeout = 65000;
-server.on('error', e => { console.error(e.code === 'EADDRINUSE' ? `端口 ${cfg.port} 已被占用，换一个：PORT=8788 node server.mjs` : e.message); process.exit(1); });
-server.listen(cfg.port, cfg.host, () => {
+// 端口被占用时自动顺延，避免启动中断。显式指定 PORT 或 --port 时仍然直接报错。
+let listenPort = cfg.port;
+let portRetries = 0;
+server.on('error', e => {
+  if (e.code === 'EADDRINUSE' && !process.env.PORT && !argVal('--port') && portRetries < 20) {
+    portRetries++;
+    console.log(`端口 ${listenPort} 已被占用，改用 ${listenPort + 1}`);
+    listenPort++;
+    setTimeout(() => server.listen(listenPort, cfg.host), 0);
+    return;
+  }
+  console.error(e.code === 'EADDRINUSE' ? `端口 ${cfg.port} 已被占用，可以换一个：PORT=${cfg.port + 1} npm start` : e.message);
+  process.exit(1);
+});
+server.listen(listenPort, cfg.host, () => {
   runtimePort = server.address().port;
   const shown = ['0.0.0.0', '::'].includes(cfg.host) ? '127.0.0.1' : cfg.host;
   console.log(`\napi2cursor ${VERSION} 已启动: http://${shown}:${runtimePort}`);
+  console.log(`管理页    : http://${shown}:${runtimePort}/admin${cfg.admin_remote ? '  (已允许远程访问)' : '  (仅本机)'}`);
   console.log(`配置文件  : ${CONFIG_PATH}`);
-  console.log(`管理页    : http://${shown}:${runtimePort}/admin  (${cfg.admin_remote ? '已允许远程访问' : '仅本机可访问，隧道访问会返回 404'})`);
-  if (generatedPassword) console.log(`管理密码  : ${generatedPassword}   ← 首次自动生成，请记下（可在管理页修改）`);
-  else if (process.env.ADMIN_PASSWORD) console.log('管理密码  : 使用环境变量 ADMIN_PASSWORD');
-  console.log(`代理口令  : ${cfg.proxy_token}`);
-  console.log(`上游      : ${cfg.upstreams.map(u => `${u.name}[${u.format}${u.enabled ? '' : ',停用'}${upstreamKey(u) ? '' : ',无key'}]`).join('  ') || '(无，请到管理页添加)'}`);
+  if (generatedPassword) console.log(`管理密码  : ${generatedPassword}  首次生成，请记下`);
+  else if (process.env.ADMIN_PASSWORD) console.log('管理密码  : 来自环境变量 ADMIN_PASSWORD');
+  console.log(`代理 token: ${cfg.proxy_token}`);
+  console.log(`上游      : ${cfg.upstreams.map(u => `${u.name} (${u.format}${u.enabled ? '' : ', 停用'}${upstreamKey(u) ? '' : ', 无 key'})`).join('  ') || '无'}`);
   if (ARGV.includes('--tunnel') || process.env.RELAY_TUNNEL === '1') {
     console.log('正在启动 cloudflared 快速隧道 ...');
     startTunnel(async (u) => { console.log(`隧道地址  : ${u}`); await printCursorSettings(); });

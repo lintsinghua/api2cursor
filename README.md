@@ -6,7 +6,7 @@
 
 **把任意模型接进 Cursor。** 一个零依赖的本地代理：把中转站、Anthropic Claude、Google Gemini、Azure OpenAI、OpenAI Responses API 以及 Ollama / LM Studio 等本地模型，统一变成 Cursor 认识的 OpenAI 接口，再通过 Cursor 的 **Override OpenAI Base URL** 接入。附带网页配置界面。
 
-![api2cursor 配置页](docs/screenshot.png)
+![api2cursor 管理页](docs/screenshot.png)
 
 <details>
 <summary>更多截图</summary>
@@ -15,7 +15,7 @@
 
 ![手机宽度](docs/screenshot-mobile.png)
 
-![展开更多](docs/screenshot-more.png)
+![上游编辑](docs/screenshot-more.png)
 
 </details>
 
@@ -23,7 +23,7 @@
 - 网页配置页：增删改上游、获取模型、一键测试、开关隧道、复制 Cursor 设置、查看请求日志，**改动即时生效**
 - 支持 5 种上游格式，流式 / 非流式 / 工具调用（Agent 模式）全部双向翻译
 - 模型别名、按模型指定上游、5xx/429/超时自动切换备用上游
-- 思考深度：模型名加 `-minimal` / `-low` / `-medium` / `-high` / `-xhigh`，或在配置里为每个上游、每个模型设默认值
+- 思考深度：模型名加 `-minimal` / `-low` / `-medium` / `-high` / `-xhigh` / `-max`，或在配置里为每个上游、每个模型设默认值；模型不支持的档位会就近夹紧
 - 内置 cloudflared 快速隧道管理，打印出要粘贴进 Cursor 的三项内容
 
 ---
@@ -57,16 +57,26 @@ node server.mjs --tunnel
 
 ```
 api2cursor 1.0.0 已启动: http://127.0.0.1:8787
-管理页    : http://127.0.0.1:8787/admin  (仅本机可访问，隧道访问会返回 404)
-管理密码  : 3f9c0a1b2d4e5f60   ← 首次自动生成，请记下（可在管理页修改）
-代理口令  : cr-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+管理页    : http://127.0.0.1:8787/admin  (仅本机)
+配置文件  : /path/to/config.json
+管理密码  : 3f9c0a1b2d4e5f60  首次生成，请记下
+代理 token: cr-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+上游      : main (openai)
+```
+
+端口被占用时会自动改用下一个可用端口，终端里会说明最终地址。想固定端口，用 `PORT=8788 ./start.sh`，或改 `config.json` 的 `port`。
+
+忘了管理密码，可以重置：
+
+```bash
+npm start -- --reset-password
 ```
 
 ### 2. 在网页里添加上游
 
 浏览器打开 `http://127.0.0.1:8787/admin`，用终端里的密码登录：
 
-页面按四步走：添加上游 → 测试通过 → 启动隧道 → Cursor 已请求。
+页面顶部有四步进度：添加上游、测试通过、启动隧道、Cursor 已请求。
 
 1. 添加上游：选格式，填 Base URL 和 API Key，获取模型，保存
 2. 测试：填写模型名，看到「通过」
@@ -78,7 +88,7 @@ api2cursor 1.0.0 已启动: http://127.0.0.1:8787
 
 | Cursor 里的设置 | 填什么 |
 | --- | --- |
-| API Keys → **OpenAI API Key** | 管理页显示的代理口令（`proxy_token`），不是中转站的真实 key |
+| API Keys → **OpenAI API Key** | 管理页显示的代理 token（`proxy_token`），不是中转站的真实 key |
 | API Keys → **Override OpenAI Base URL** | `https://xxxx.trycloudflare.com/v1`（隧道地址 + `/v1`） |
 | 模型列表 → **+ Add Custom Model** | 带前缀的模型名，例如 `relay-claude-sonnet-4-5`，逐个添加并勾选 |
 
@@ -121,7 +131,7 @@ api2cursor 1.0.0 已启动: http://127.0.0.1:8787
 | --- | --- | --- |
 | `host` | `127.0.0.1` | 监听地址。隧道从本机连进来，不需要改成 `0.0.0.0` |
 | `port` | `8787` | 端口（修改需重启） |
-| `proxy_token` | 自动生成 | Cursor 里填的 “OpenAI API Key”；管理页可一键重新生成 |
+| `proxy_token` | 自动生成 | Cursor 里填的 “OpenAI API Key”；管理页可重新生成 |
 | `model_prefix` | `relay-` | Cursor 里的模型名 = 前缀 + 模型名 |
 | `admin_remote` | `false` | 是否允许经隧道 / 局域网访问管理页。默认关闭；只有显式 `true` 才会打开，见下方「远程管理」 |
 | `timeout_ms` | `120000` | 等待上游开始响应的超时 |
